@@ -1,0 +1,871 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>prob_inference &mdash; peircebayes 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="peircebayes 0.0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for prob_inference</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">:synopsis: Module for probabilistic inference on a :class:`formula_gen.PBModel`.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">scipy.sparse</span> <span class="kn">import</span> <span class="n">lil_matrix</span>
+<span class="kn">from</span> <span class="nn">scipy.stats</span> <span class="kn">import</span> <span class="n">bernoulli</span>
+<span class="kn">from</span> <span class="nn">scipy.special</span> <span class="kn">import</span> <span class="n">gammaln</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">import</span> <span class="nn">copy</span>
+<span class="c">#import gc</span>
+<span class="kn">import</span> <span class="nn">psutil</span>
+
+<span class="kn">import</span> <span class="nn">knowledge_compilation</span>
+
+<span class="kn">from</span> <span class="nn">prob_inference_dev</span> <span class="kn">import</span> <span class="p">(</span><span class="n">backward_plate_cy</span><span class="p">,</span> <span class="n">sample_bdd_plate_cy</span><span class="p">,</span>
+    <span class="n">reparam_cy</span><span class="p">)</span>
+
+<span class="c"># logging stuff</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">logging</span> <span class="kn">import</span> <span class="n">debug</span> <span class="k">as</span> <span class="n">logd</span>
+
+<span class="c"># timing stuff</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="c"># inference class</span>
+<div class="viewcode-block" id="PBInference"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference">[docs]</a><span class="k">class</span> <span class="nc">PBInference</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Container of inference methods for a :class:`formula_gen.PBModel`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_model</span><span class="p">):</span>
+        <span class="c"># input</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span>       <span class="o">=</span> <span class="n">pb_model</span>
+        <span class="c"># important attributes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span>              <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta</span>          <span class="o">=</span> <span class="bp">None</span>
+        <span class="c"># other</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span>      <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta_avg</span>      <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">beta</span>           <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alpha_tiled</span>    <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="mi">1</span><span class="p">))</span>
+                                <span class="k">for</span> <span class="n">distrib</span> <span class="ow">in</span> <span class="n">pb_model</span><span class="o">.</span><span class="n">distribs</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span>          <span class="o">=</span> <span class="p">[</span><span class="n">distrib</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">distrib</span> <span class="ow">in</span> <span class="n">pb_model</span><span class="o">.</span><span class="n">distribs</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">symmetric</span>      <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">alpha_d</span><span class="o">==</span><span class="n">alpha_d</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                                <span class="k">for</span> <span class="n">alpha_d</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span><span class="p">]</span>
+
+<div class="viewcode-block" id="PBInference.backward_plates"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference.backward_plates">[docs]</a>    <span class="k">def</span> <span class="nf">backward_plates</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Compute backward probabilities for all plates.</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: list of els. returned by :func:`prob_inference_dev.backward_plate_cy`</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">backward_plate4</span><span class="p">(</span><span class="n">pb_plate</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">)</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">plate_idx</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">plates</span><span class="p">)]</span>
+</div>
+    <span class="k">def</span> <span class="nf">backward_plate4</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">backward_plate_cy</span><span class="p">(</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span><span class="p">,</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">backward_plate3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">plate</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span>
+        <span class="c">#logd(plate.shape[0])</span>
+        <span class="c">#logd(bdd.shape[0])</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">bdd</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">2</span><span class="p">))</span>
+        <span class="n">one_idx</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">bdd</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">3</span><span class="p">]</span> <span class="k">else</span> <span class="mi">1</span> <span class="c"># 0 if root.IsComplement() else 1</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span><span class="n">bdd_node</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">bdd</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="n">beta</span><span class="p">[:,</span><span class="n">i</span><span class="p">,</span><span class="n">one_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">plate_row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">beta</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                    <span class="n">label</span><span class="p">,</span> <span class="n">high_idx</span><span class="p">,</span> <span class="n">low_idx</span><span class="p">,</span> <span class="n">_</span>  <span class="o">=</span> <span class="n">bdd_node</span>
+                    <span class="n">node_prob</span>   <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">label</span><span class="p">]</span>
+                    <span class="n">low_comp</span>    <span class="o">=</span> <span class="n">bdd</span><span class="p">[</span><span class="n">low_idx</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span> <span class="c"># low.IsComplement()</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">node_prob</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">high_idx</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">node_prob</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">low_idx</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="ow">not</span> <span class="n">low_comp</span><span class="p">)]</span> <span class="p">)</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">node_prob</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">high_idx</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">node_prob</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">low_idx</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">low_comp</span><span class="p">)]</span> <span class="p">)</span>
+        <span class="c">#print beta</span>
+        <span class="k">return</span> <span class="n">beta</span>
+
+    <span class="k">def</span> <span class="nf">backward_plate2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">plate</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span>
+        <span class="c">#logd(plate.shape[0])</span>
+        <span class="c">#logd(len(bdd.h_nodes))</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="p">),</span> <span class="mi">2</span><span class="p">))</span>
+        <span class="n">one_idx</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">bdd</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">IsComplement</span><span class="p">()</span> <span class="k">else</span> <span class="mi">1</span>
+        <span class="n">beta</span><span class="p">[:,</span><span class="mi">0</span><span class="p">,</span><span class="n">one_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span> <span class="n">idx_curr</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span>
+            <span class="n">bdd</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">bdd</span><span class="o">.</span><span class="n">idx_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:])):</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+            <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+            <span class="n">i_high</span> <span class="o">=</span> <span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+            <span class="n">i_low</span> <span class="o">=</span> <span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">plate_row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                <span class="n">curr_theta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">idx_curr</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">low</span><span class="o">.</span><span class="n">IsComplement</span><span class="p">():</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_high</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_low</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_high</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_low</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span> <span class="p">,</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_high</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_low</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i</span> <span class="p">,</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_high</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">i_low</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+        <span class="c">#print beta</span>
+        <span class="k">return</span> <span class="n">beta</span>
+
+    <span class="k">def</span> <span class="nf">backward_plate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">plate</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span>
+        <span class="n">h_one</span><span class="p">,</span> <span class="n">h_root</span> <span class="o">=</span> <span class="p">[</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+        <span class="n">beta_init</span> <span class="o">=</span> <span class="p">{(</span><span class="n">h_one</span><span class="p">,</span><span class="mi">0</span><span class="p">):</span><span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="n">h_one</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span><span class="mi">1</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">bdd</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">IsComplement</span><span class="p">():</span>
+            <span class="n">beta_init</span> <span class="o">=</span> <span class="p">{(</span><span class="n">h_one</span><span class="p">,</span><span class="mi">0</span><span class="p">):</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="n">h_one</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span><span class="mi">0</span><span class="p">}</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="p">[</span><span class="n">beta_init</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">plate</span><span class="p">))]</span>
+        <span class="k">for</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span> <span class="n">idx_curr</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+            <span class="n">bdd</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">bdd</span><span class="o">.</span><span class="n">idx_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
+            <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+            <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">plate_row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                <span class="n">curr_theta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">idx_curr</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">low</span><span class="o">.</span><span class="n">IsComplement</span><span class="p">():</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_low</span><span class="p">,</span> <span class="mi">0</span><span class="p">)])</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">0</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">0</span><span class="p">)]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_low</span><span class="p">,</span> <span class="mi">1</span><span class="p">)])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_low</span><span class="p">,</span> <span class="mi">1</span><span class="p">)])</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">0</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">curr_theta</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">0</span><span class="p">)]</span><span class="o">+</span>
+                        <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">*</span><span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_low</span><span class="p">,</span> <span class="mi">0</span><span class="p">)])</span>
+        <span class="c">#print beta</span>
+        <span class="k">return</span> <span class="n">beta</span>
+
+    <span class="c"># TODO check these</span>
+    <span class="c"># bdd params, bdd reps</span>
+<div class="viewcode-block" id="PBInference.sample_bdd_plates"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference.sample_bdd_plates">[docs]</a>    <span class="k">def</span> <span class="nf">sample_bdd_plates</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sample x method. Calls :meth:`backward_plates` and for each plate :func:`prob_inference_dev.sample_bdd_plate_cy`. Updates x.        </span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_x</span><span class="p">()</span>
+        <span class="c">#mem1 = psutil.virtual_memory().percent</span>
+        <span class="c">#logd(&#39;before beta: {}&#39;.format(mem1))</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="n">betas</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backward_plates</span><span class="p">()</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="n">logd</span><span class="p">(</span><span class="s">&#39;beta time: {} s&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">))</span>
+
+        <span class="c">#mem2 = psutil.virtual_memory().percent</span>
+        <span class="c">#logd(&#39;after beta: {}&#39;.format(mem2))</span>
+
+
+        <span class="c">#start = time.clock()</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">plate_idx</span><span class="p">,</span> <span class="p">(</span><span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">))</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">plates</span><span class="p">,</span> <span class="n">betas</span><span class="p">)):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sample_bdd_plate3</span><span class="p">(</span><span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">)</span>
+        <span class="c">#logd(self.x)</span>
+        <span class="c">#end = time.clock()</span>
+        <span class="c">#logd(&#39;sample bdd time: {} s&#39;.format(end-start))</span>
+        </div>
+    <span class="k">def</span> <span class="nf">sample_bdd_plate3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="n">plate</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">reps</span>
+        <span class="n">prob</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">]</span>
+        <span class="n">sample_bdd_plate_cy</span><span class="p">(</span><span class="n">plate</span><span class="p">,</span> <span class="n">bdd</span><span class="p">,</span> <span class="n">reps</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">prob</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">sample_bdd_plate2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">reps</span>
+        <span class="n">NNodes</span> <span class="o">=</span> <span class="n">bdd</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">NParamSets</span> <span class="o">=</span> <span class="n">reps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NNodes</span><span class="p">,</span> <span class="n">NParamSets</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,:]</span> <span class="o">=</span> <span class="n">reps</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">bdd</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">bdd_node</span> <span class="o">=</span> <span class="n">bdd</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="c"># must compute</span>
+            <span class="c"># TODO precompute as much as possible</span>
+            <span class="n">reps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">i</span><span class="p">,:]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">ber_args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">(</span>
+                <span class="c"># this is p1</span>
+                <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][:,</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span><span class="o">*</span>
+                    <span class="n">beta</span><span class="p">[:,</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="mi">1</span><span class="p">]</span><span class="o">/</span> <span class="n">beta</span><span class="p">[:,</span> <span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+                    <span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+                <span class="c"># stacked with reps</span>
+                <span class="n">reps</span><span class="p">))</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logd</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">ber_args</span><span class="p">)</span>
+            <span class="n">samples</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span>
+                <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">None</span><span class="p">]),</span>
+                <span class="mi">1</span><span class="p">,</span> <span class="n">ber_args</span><span class="p">)</span>
+            <span class="c"># TODO figure out how to update self.x with vectorization</span>
+            <span class="c"># idea: group by i in (i,j,k) and work with the matrices separately</span>
+            <span class="c">#print self.x</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_high_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]))</span>
+                <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_low_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">bdd_node</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]))</span>
+                <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+            <span class="n">start_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">bdd_node</span><span class="p">[</span><span class="mi">1</span><span class="p">],:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">bdd_node</span><span class="p">[</span><span class="mi">2</span><span class="p">],:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">end_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+            <span class="c">#logd(&#39;per update time: {} s&#39;.format(end_upd_reps-start_upd_reps))</span>
+
+    <span class="k">def</span> <span class="nf">sample_bdd_plate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">):</span>
+        <span class="c"># bdd_reps is a dict of key=hash(node), val = (index, repetitions)</span>
+        <span class="c"># bdd_reps is an array of shape (NNodes, NParamSets)</span>
+        <span class="c"># bdd_reps[node_number_bft, plate_row] = n_reps</span>
+        <span class="n">bdd</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">reps</span>
+        <span class="n">NNodes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">bdd</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+        <span class="n">NParamSets</span> <span class="o">=</span> <span class="n">reps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">NNodes</span><span class="p">,</span> <span class="n">NParamSets</span><span class="p">))</span>
+        <span class="c"># 0 for root</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="mi">0</span><span class="p">,:]</span> <span class="o">=</span> <span class="n">reps</span>
+        <span class="n">nodes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">bdd</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span>
+        <span class="n">h_nodes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">node_no_bft</span><span class="p">,</span> <span class="p">(</span><span class="n">curr_node</span><span class="p">,</span><span class="n">h_curr</span><span class="p">))</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span>
+            <span class="n">nodes</span><span class="p">,</span><span class="n">h_nodes</span><span class="p">)):</span>
+            <span class="c">#start = time.clock()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sample_node_4</span><span class="p">(</span><span class="n">node_no_bft</span><span class="p">,</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span>
+                <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">,</span> <span class="n">h_nodes</span><span class="p">)</span>
+            <span class="c">#end = time.clock()</span>
+            <span class="c">#logd(&#39;per node time: {} s&#39;.format(end-start))</span>
+            <span class="c">#for j in range(self.bdd_reps.shape[0]):</span>
+            <span class="c">#    print self.bdd_reps[j,:]</span>
+            <span class="n">i</span><span class="o">+=</span><span class="mi">1</span>
+            <span class="c">#if i&gt;4:</span>
+            <span class="c">#    return</span>
+        <span class="c">#print self.x</span>
+
+    <span class="k">def</span> <span class="nf">update_x_high_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">samples</span><span class="p">):</span>
+        <span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">samples_high</span> <span class="o">=</span> <span class="n">samples</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_high</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">update_x_low_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">samples</span><span class="p">):</span>
+        <span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">samples_low</span> <span class="o">=</span> <span class="n">samples</span>
+        <span class="k">if</span> <span class="n">samples_low</span><span class="o">&gt;</span><span class="mi">0</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="mi">2</span> <span class="o">==</span> <span class="n">k</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_low</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">sample_node_4</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">,</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span>
+        <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">,</span> <span class="n">h_nodes</span><span class="p">):</span>
+        <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+        <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+        <span class="n">i_high</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+        <span class="n">i_low</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+        <span class="n">i_curr</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">bdd</span><span class="o">.</span><span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_curr</span><span class="p">)</span>
+        <span class="c"># must compute</span>
+        <span class="c"># TODO precompute as much as possible</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_bft</span><span class="p">,:]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">ber_args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">(</span>
+            <span class="c"># this is p1</span>
+
+            <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][:,</span> <span class="n">node_no_bft</span><span class="p">]</span><span class="o">*</span>
+                <span class="n">beta</span><span class="p">[:,</span> <span class="n">i_high</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">/</span> <span class="n">beta</span><span class="p">[:,</span> <span class="n">i_curr</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+            <span class="c"># stacked with reps</span>
+            <span class="n">reps</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c">#print len(h_nodes)</span>
+            <span class="c">#print self.bdd_param[0].shape</span>
+            <span class="c">#print plate_idx</span>
+            <span class="c">#print node_no_bft</span>
+            <span class="c">#print i_high</span>
+            <span class="c">#print beta[:,i_curr,1]</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="n">samples</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">None</span><span class="p">]),</span>
+            <span class="mi">1</span><span class="p">,</span> <span class="n">ber_args</span><span class="p">)</span>
+        <span class="c"># TODO figure out how to update self.x with vectorization</span>
+        <span class="c"># idea: group by i in (i,j,k) and work with the matrices separately</span>
+        <span class="c">#print self.x</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_high_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_low_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="n">start_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_high</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_high</span><span class="p">,:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_low</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_low</span><span class="p">,:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="n">end_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="c">#logd(&#39;per update time: {} s&#39;.format(end_upd_reps-start_upd_reps))</span>
+
+
+    <span class="k">def</span> <span class="nf">sample_node_3</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">,</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span>
+        <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">,</span> <span class="n">h_nodes</span><span class="p">):</span>
+        <span class="c"># TODO this doesn&#39;t work currently, find out why and fix it</span>
+        <span class="c"># no more curr_reps we need bdd_reps[row] instead</span>
+        <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+        <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+        <span class="c">#i_high = pb_plate.bdd.h_nodes.index(h_high)</span>
+        <span class="c">#i_low = pb_plate.bdd.h_nodes.index(h_low)</span>
+        <span class="c"># must compute</span>
+        <span class="c"># TODO precompute as much as possible</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_bft</span><span class="p">,:]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ber_args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">(</span>
+        <span class="c"># this is p1</span>
+        <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][:,</span> <span class="n">node_no_bft</span><span class="p">]</span><span class="o">*</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">beta_row</span><span class="p">[(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="k">for</span> <span class="n">beta_row</span> <span class="ow">in</span> <span class="n">beta</span><span class="p">])</span>
+            <span class="o">/</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">beta_row</span><span class="p">[(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="k">for</span> <span class="n">beta_row</span> <span class="ow">in</span> <span class="n">beta</span><span class="p">]))</span>
+            <span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+        <span class="c"># stacked with reps</span>
+        <span class="n">reps</span><span class="p">))</span>
+        <span class="n">samples</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">None</span><span class="p">]),</span>
+            <span class="mi">1</span><span class="p">,</span> <span class="n">ber_args</span><span class="p">)</span>
+        <span class="c"># TODO figure out how to update self.x with vectorization</span>
+        <span class="c"># idea: group by i in (i,j,k) and work with the matrices separately</span>
+        <span class="c">#print self.x</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_high_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_low_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="n">start_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_high</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_high</span><span class="p">,:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_low</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_low</span><span class="p">,:]</span> <span class="o">+=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="n">end_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="c">#logd(&#39;per update time: {} s&#39;.format(end_upd_reps-start_upd_reps))</span>
+
+
+    <span class="k">def</span> <span class="nf">sample_node_2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">,</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span>
+        <span class="n">pb_plate</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">,</span> <span class="n">h_nodes</span><span class="p">):</span>
+        <span class="c"># debug</span>
+        <span class="kn">import</span> <span class="nn">warnings</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s">&quot;error&quot;</span><span class="p">)</span>
+
+        <span class="c"># no more curr_reps we need bdd_reps[row] instead</span>
+        <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+        <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+
+        <span class="c"># must compute</span>
+        <span class="c"># TODO precompute as much as possible</span>
+        <span class="n">curr_theta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][:,</span> <span class="n">node_no_bft</span><span class="p">]</span>
+        <span class="c">#print curr_theta.shape</span>
+        <span class="n">prob_curr_node</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">beta_row</span><span class="p">[(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="k">for</span> <span class="n">beta_row</span> <span class="ow">in</span> <span class="n">beta</span><span class="p">])</span>
+        <span class="c">#print prob_curr_node.shape</span>
+        <span class="n">prob_child_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">beta_row</span><span class="p">[(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span> <span class="k">for</span> <span class="n">beta_row</span> <span class="ow">in</span> <span class="n">beta</span><span class="p">])</span>
+        <span class="c">#print prob_child_1.shape</span>
+        <span class="c"># P(N sampled 1) = P(N)*beta(Child^1[N])/beta(N)</span>
+        <span class="c">#eps = 10**-300</span>
+        <span class="c">#curr_theta = curr_theta.clip(min=eps)</span>
+        <span class="c">#prob_child_1 = prob_child_1.clip(min=eps)</span>
+        <span class="c">#prob_curr_node = prob_curr_node.clip(min=eps)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">p1</span> <span class="o">=</span> <span class="n">curr_theta</span><span class="o">*</span><span class="n">prob_child_1</span><span class="o">/</span><span class="n">prob_curr_node</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">print</span> <span class="n">prob_curr_node</span><span class="p">,</span> <span class="n">curr_theta</span><span class="o">*</span><span class="n">prob_child_1</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">,</span> <span class="n">plate_idx</span>
+            <span class="n">p1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">curr_theta</span><span class="p">)</span><span class="o">+</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">prob_child_1</span><span class="p">)</span><span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">prob_curr_node</span><span class="p">)</span>
+            <span class="k">print</span> <span class="s">&#39;exp p1&#39;</span>
+            <span class="k">print</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">p1</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">p1</span> <span class="o">=</span> <span class="n">p1</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">p1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_bft</span><span class="p">,:]</span>
+        <span class="n">reps</span> <span class="o">=</span> <span class="n">reps</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">reps</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">ber_args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">p1</span><span class="p">,</span> <span class="n">reps</span><span class="p">))</span>
+        <span class="c">#print ber_args.shape</span>
+        <span class="c">#print p1[:10]</span>
+        <span class="c">#print reps[:10]</span>
+        <span class="n">samples</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span>
+            <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">None</span><span class="p">]),</span>
+            <span class="mi">1</span><span class="p">,</span> <span class="n">ber_args</span><span class="p">)</span>
+        <span class="n">samples_high</span> <span class="o">=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">0</span><span class="p">]]</span>
+        <span class="n">samples_low</span> <span class="o">=</span> <span class="n">samples</span><span class="p">[:,[</span><span class="mi">1</span><span class="p">]]</span>
+        <span class="c">#print samples_low[:10]</span>
+        <span class="c">#print</span>
+        <span class="c">#print samples_high[:10]</span>
+        <span class="c">#print samples_high_col.shape</span>
+        <span class="c">#print formula.plate[:, node_no_bft].shape</span>
+        <span class="c">#print np.hstack((samples_high_col, formula.plate[:, node_no_bft])).shape</span>
+
+        <span class="c"># TODO figure out how to update self.x with vectorization</span>
+        <span class="c"># idea: group by i in (i,j,k) and work with the matrices separately</span>
+        <span class="c">#print self.x</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_high_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples_high</span><span class="p">))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="c">#print self.x[0]</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">apply_along_axis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">update_x_low_count</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[:,</span> <span class="n">node_no_bft</span><span class="p">],</span> <span class="n">samples_low</span><span class="p">))</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+
+        <span class="c">#node_no_high = h_nodes.index(h_high)</span>
+        <span class="c">#reps_high = self.bdd_reps[node_no_high,:]</span>
+        <span class="c">#reps_high = reps_high.reshape(reps_high.shape[0],1)</span>
+        <span class="c">#reps_high += samples_high</span>
+        <span class="c"># update reps</span>
+        <span class="n">start_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_high</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+            <span class="n">reps_high</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_high</span><span class="p">,:]</span>
+            <span class="n">reps_high</span> <span class="o">=</span> <span class="n">reps_high</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">reps_high</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">reps_high</span> <span class="o">+=</span> <span class="n">samples_high</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">node_no_low</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+            <span class="n">reps_low</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_low</span><span class="p">,:]</span>
+            <span class="n">reps_low</span> <span class="o">=</span> <span class="n">reps_low</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">reps_low</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">reps_low</span> <span class="o">+=</span> <span class="n">samples_low</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># leaf node</span>
+        <span class="n">end_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+        <span class="c">#logd(&#39;per update time: {} s&#39;.format(end_upd_reps-start_upd_reps))</span>
+
+
+    <span class="k">def</span> <span class="nf">sample_node_1</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">,</span> <span class="n">curr_node</span><span class="p">,</span> <span class="n">h_curr</span><span class="p">,</span>
+        <span class="n">formula</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">plate_idx</span><span class="p">,</span> <span class="n">h_nodes</span><span class="p">):</span>
+        <span class="c"># no more curr_reps we need bdd_reps[row] instead</span>
+        <span class="n">high</span><span class="p">,</span> <span class="n">low</span> <span class="o">=</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">T</span><span class="p">(),</span> <span class="n">curr_node</span><span class="o">.</span><span class="n">E</span><span class="p">()</span>
+        <span class="n">h_high</span><span class="p">,</span> <span class="n">h_low</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">myhash</span><span class="p">,</span> <span class="p">[</span><span class="n">high</span><span class="p">,</span> <span class="n">low</span><span class="p">])</span>
+        <span class="n">creps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_bft</span><span class="p">]</span><span class="o">.</span><span class="n">tocoo</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">_</span><span class="p">,</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">rep</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">izip</span><span class="p">(</span>
+            <span class="n">creps</span><span class="o">.</span><span class="n">row</span><span class="p">,</span> <span class="n">creps</span><span class="o">.</span><span class="n">col</span><span class="p">,</span> <span class="n">creps</span><span class="o">.</span><span class="n">data</span><span class="p">):</span>
+            <span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span> <span class="o">=</span> <span class="n">formula</span><span class="o">.</span><span class="n">plate</span><span class="p">[</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">]</span>
+            <span class="c">#if plate_row==2 and idx_curr == 1:</span>
+            <span class="c">#    print i,j,k,idx_curr</span>
+            <span class="c">#    print self.theta[i].shape[1]</span>
+            <span class="c">#    return</span>
+            <span class="n">curr_theta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="p">[</span><span class="n">plate_idx</span><span class="p">][</span><span class="n">plate_row</span><span class="p">,</span> <span class="n">node_no_bft</span><span class="p">]</span>
+            <span class="n">prob_curr_node</span> <span class="o">=</span> <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_curr</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span>
+            <span class="n">prob_child_1</span> <span class="o">=</span> <span class="n">beta</span><span class="p">[</span><span class="n">plate_row</span><span class="p">][(</span><span class="n">h_high</span><span class="p">,</span><span class="mi">1</span><span class="p">)]</span>
+            <span class="c"># P(N sampled 1) = P(N)*beta(Child^1[N])/beta(N)</span>
+            <span class="n">p1</span> <span class="o">=</span> <span class="n">curr_theta</span><span class="o">*</span><span class="n">prob_child_1</span><span class="o">/</span><span class="n">prob_curr_node</span>
+            <span class="n">ber_samples</span> <span class="o">=</span> <span class="n">bernoulli</span><span class="o">.</span><span class="n">rvs</span><span class="p">(</span><span class="n">p1</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">rep</span><span class="p">)</span>
+            <span class="n">samples_high</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">ber_samples</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_high</span>
+            <span class="c"># deal with the last variable of the pds</span>
+            <span class="n">samples_low</span> <span class="o">=</span> <span class="n">rep</span><span class="o">-</span><span class="n">samples_high</span>
+            <span class="c"># bugged = shape-2</span>
+            <span class="k">if</span> <span class="n">samples_low</span><span class="o">&gt;</span><span class="mi">0</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="mi">2</span> <span class="o">==</span> <span class="n">k</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_low</span>
+            <span class="c"># update reps</span>
+            <span class="n">start_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">samples_high</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">node_no_high</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_high</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_high</span><span class="p">,</span><span class="n">plate_row</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_high</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="k">pass</span> <span class="c"># leaf node</span>
+            <span class="k">if</span> <span class="n">samples_low</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">node_no_low</span> <span class="o">=</span> <span class="n">h_nodes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">h_low</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">bdd_reps</span><span class="p">[</span><span class="n">node_no_low</span><span class="p">,</span><span class="n">plate_row</span><span class="p">]</span> <span class="o">+=</span> <span class="n">samples_low</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="k">pass</span> <span class="c"># leaf node</span>
+            <span class="n">end_upd_reps</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+            <span class="c">#logd(&#39;per update time: {} s&#39;.format(end_upd_reps-start_upd_reps))</span>
+
+
+<div class="viewcode-block" id="PBInference.reset_x"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference.reset_x">[docs]</a>    <span class="k">def</span> <span class="nf">reset_x</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Reset counts in x. Updates x.</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">distribs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">distribs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">distrib</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">distrib</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="k">for</span> <span class="n">distrib</span> <span class="ow">in</span> <span class="n">distribs</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="PBInference.gibbs_sampler_plates"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference.gibbs_sampler_plates">[docs]</a>    <span class="k">def</span> <span class="nf">gibbs_sampler_plates</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">burn_in</span><span class="p">,</span> <span class="n">lag</span><span class="p">,</span> <span class="n">track_ll</span><span class="p">,</span> <span class="n">in_file</span><span class="p">,</span> <span class="n">metric</span><span class="p">,</span> <span class="n">algo</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Gibbs sampling. Updates x and theta, creates a theta_avg attribute and optionally saves metric to an output file.</span>
+<span class="sd">        </span>
+<span class="sd">        :param n: </span>
+<span class="sd">        :type n: see &#39;-n&#39; in :ref:`cl`</span>
+<span class="sd">        :param burn_in: </span>
+<span class="sd">        :type burn_in: see &#39;-b&#39; in :ref:`cl`</span>
+<span class="sd">        :param lag:</span>
+<span class="sd">        :type lag: see &#39;-l&#39; in :ref:`cl`</span>
+<span class="sd">        :param track_ll:</span>
+<span class="sd">        :type track_ll: see &#39;-t&#39; in :ref:`cl`</span>
+<span class="sd">        :param in_file:</span>
+<span class="sd">        :type in_file: see &#39;in_file&#39; in :ref:`cl`</span>
+<span class="sd">        :param metric:</span>
+<span class="sd">        :type metric: see &#39;-m&#39; in :ref:`cl`</span>
+<span class="sd">        :param algo:</span>
+<span class="sd">        :type algo: see &#39;-a&#39; in :ref:`cl`</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">start_gibbs</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">metrics</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s">&#39;joint&#39;</span>     <span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">joint_collapsed</span><span class="p">(),</span>
+            <span class="s">&#39;lda_ll&#39;</span>    <span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">likelihood_lda</span><span class="p">()</span>
+        <span class="p">}</span>
+        <span class="n">metric_f</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span>
+
+        <span class="c">#ngc = gc.collect()</span>
+        <span class="c">#logd(&#39;Unreachable objects:{}&#39;.format(ngc))</span>
+
+        <span class="n">n</span> <span class="o">=</span> <span class="n">n</span><span class="o">+</span><span class="n">burn_in</span> <span class="c"># n is total number of iterations</span>
+
+        <span class="n">thetas</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">track_ll</span><span class="p">:</span>
+            <span class="n">lls</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">first_sample</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="c"># main loop</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">logd</span><span class="p">(</span><span class="s">&#39;Sampling iteration: {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">algo</span> <span class="o">==</span> <span class="s">&#39;ungibbs&#39;</span><span class="p">:</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="c"># SAMPLE THETA</span>
+                <span class="c">#logd(&#39;SAMPLE THETA&#39;)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sample_theta</span><span class="p">()</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">first_sample</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">first_sample</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="n">logd</span><span class="p">(</span><span class="s">&#39;sample theta time: {} s&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">))</span>
+                <span class="c">#logd(&#39;theta&#39;)</span>
+                <span class="c">#logd(self.theta)</span>
+                <span class="n">thetas</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">)</span>
+                <span class="c"># SAMPLE X</span>
+                <span class="c">#logd(&#39;SAMPLE X&#39;)</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sample_bdd_plates</span><span class="p">()</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="n">logd</span><span class="p">(</span><span class="s">&#39;sample x time: {} s&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">algo</span> <span class="o">==</span> <span class="s">&#39;amcmc&#39;</span><span class="p">:</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="c"># SAMPLE THETA</span>
+                <span class="c">#logd(&#39;SAMPLE THETA&#39;)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set_theta_mean</span><span class="p">()</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">first_sample</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">first_sample</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="n">logd</span><span class="p">(</span><span class="s">&#39;sample theta time: {} s&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">))</span>
+                <span class="c">#logd(&#39;theta&#39;)</span>
+                <span class="c">#logd(self.theta)</span>
+                <span class="n">thetas</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">)</span>
+                <span class="c"># SAMPLE X</span>
+                <span class="c">#logd(&#39;SAMPLE X&#39;)</span>
+                <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sample_bdd_plates</span><span class="p">()</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">clock</span><span class="p">()</span>
+                <span class="n">logd</span><span class="p">(</span><span class="s">&#39;sample x time: {} s&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">track_ll</span><span class="p">:</span>
+                <span class="n">lls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metric_f</span><span class="p">(</span><span class="bp">self</span><span class="p">))</span>
+            <span class="c">#logd(&#39;x&#39;)</span>
+            <span class="c">#logd(self.x)</span>
+        <span class="c">#self.plot_phi(theta)</span>
+        <span class="n">end_gibbs</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">logd</span><span class="p">(</span><span class="s">&#39;Sampling time: {} s &#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">end_gibbs</span><span class="o">-</span><span class="n">start_gibbs</span><span class="p">))</span>
+
+        <span class="c"># POST PROCESS</span>
+        <span class="k">if</span> <span class="n">burn_in</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">int</span><span class="p">(</span><span class="n">burn_in</span><span class="p">)</span><span class="o">&gt;=</span><span class="mi">0</span><span class="p">:</span>
+            <span class="n">thetas</span> <span class="o">=</span> <span class="n">thetas</span><span class="p">[</span><span class="n">burn_in</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="n">lag</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">int</span><span class="p">(</span><span class="n">lag</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">:</span>
+            <span class="n">thetas</span> <span class="o">=</span> <span class="p">[</span><span class="n">theta</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span><span class="n">theta</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">thetas</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span><span class="o">%</span><span class="n">lag</span><span class="o">==</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">logd</span><span class="p">(</span><span class="s">&#39;No. of samples: {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">thetas</span><span class="p">)))</span>
+
+        <span class="c"># avg_theta</span>
+        <span class="n">sum_thetas</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">theta_d</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="k">for</span> <span class="n">theta_d</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">theta_it</span> <span class="ow">in</span> <span class="n">thetas</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">theta_d</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">theta_it</span><span class="p">):</span>
+                <span class="n">sum_thetas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">theta_d</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta_avg</span> <span class="o">=</span> <span class="p">[</span><span class="n">theta_d</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">thetas</span><span class="p">))</span> <span class="k">for</span> <span class="n">theta_d</span> <span class="ow">in</span> <span class="n">sum_thetas</span><span class="p">]</span>
+        <span class="n">logd</span><span class="p">(</span><span class="s">&#39;theta avg&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">theta_it</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta_avg</span><span class="p">:</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">theta_it</span><span class="p">)</span>
+
+        <span class="c"># ll tracking post-process</span>
+        <span class="k">if</span> <span class="n">track_ll</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_ll</span><span class="p">(</span><span class="n">lls</span><span class="p">,</span> <span class="n">burn_in</span><span class="p">,</span> <span class="n">in_file</span><span class="p">)</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s">&#39;/tmp/peircebayes/lls&#39;</span><span class="p">,</span> <span class="o">**</span><span class="p">{</span><span class="s">&#39;lls&#39;</span><span class="p">:</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lls</span><span class="p">)})</span>
+            <span class="c">#with open(&#39;ll_aprob&#39;, &#39;w&#39;) as fout:</span>
+            <span class="c">#    for ll in lls:</span>
+            <span class="c">#        fout.write(&#39;{} &#39;.format(ll))</span>
+</div>
+    <span class="k">def</span> <span class="nf">plot_ll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lls</span><span class="p">,</span> <span class="n">burn_in</span><span class="p">,</span> <span class="n">in_file</span><span class="p">):</span>
+        <span class="c">#lls = lls[1:]</span>
+        <span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">()</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">lls</span><span class="p">))),</span> <span class="n">lls</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">&#39;Iterations&#39;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">&#39;Log Likelihood&#39;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;PB in_file={}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">in_file</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">burn_in</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">burn_in</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;red&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">&#39;Burn in&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">(</span><span class="n">loc</span><span class="o">=</span><span class="s">&#39;lower right&#39;</span><span class="p">)</span>
+        <span class="c"># TODO plot lag as well</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s">&#39;/tmp/peircebayes/ll.pdf&#39;</span><span class="p">,</span> <span class="n">format</span><span class="o">=</span><span class="s">&#39;pdf&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">set_theta_mean</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">distribs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">distribs</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">reset_x</span><span class="p">()</span>
+        <span class="n">alpha_post</span> <span class="o">=</span> <span class="p">[</span><span class="n">alpha_d</span><span class="o">+</span><span class="n">x_distrib</span>
+                <span class="k">for</span> <span class="n">x_distrib</span><span class="p">,</span> <span class="n">alpha_d</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">alpha_tiled</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">alpha_row</span><span class="o">/</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">alpha_row</span><span class="p">)</span> <span class="k">for</span> <span class="n">alpha_row</span> <span class="ow">in</span> <span class="n">alpha_d</span><span class="p">]</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">alpha_d</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">alpha_d</span> <span class="ow">in</span> <span class="n">alpha_post</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">distrib</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">distribs</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="mi">1</span><span class="p">))</span> <span class="k">if</span> <span class="n">distrib</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="c"># clip pls TODO find a better workaround</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="mi">10</span><span class="o">**-</span><span class="mi">300</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta</span> <span class="o">=</span> <span class="p">[</span><span class="n">theta_row</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span> <span class="k">for</span> <span class="n">theta_row</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reparam2</span><span class="p">()</span>
+        
+<div class="viewcode-block" id="PBInference.sample_theta"><a class="viewcode-back" href="../prob_inference.html#prob_inference.PBInference.sample_theta">[docs]</a>    <span class="k">def</span> <span class="nf">sample_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main method for sampling theta. Updates theta. Also updates parameters of propositional variables in BDDs.</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c">#start = time.clock()</span>
+        <span class="n">distribs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">distribs</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">reset_x</span><span class="p">()</span>
+        
+        <span class="c"># SAMPLE THETA</span>
+        <span class="n">alpha_post</span> <span class="o">=</span> <span class="p">[</span><span class="n">alpha_d</span><span class="o">+</span><span class="n">x_distrib</span>
+                <span class="k">for</span> <span class="n">x_distrib</span><span class="p">,</span> <span class="n">alpha_d</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">alpha_tiled</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">dirichlet</span><span class="p">(</span><span class="n">alpha_row</span><span class="p">,</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">alpha_row</span> <span class="ow">in</span> <span class="n">alpha_d</span><span class="p">]</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">alpha_d</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">alpha_d</span> <span class="ow">in</span> <span class="n">alpha_post</span><span class="p">]</span>
+        <span class="c"># freeze distribs TODO do this as a logical operator on arrays</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">distrib</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">distribs</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">distrib</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="mi">1</span><span class="p">))</span> <span class="k">if</span> <span class="n">distrib</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="c"># clip pls TODO find a better workaround</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="mi">10</span><span class="o">**-</span><span class="mi">300</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">theta</span> <span class="o">=</span> <span class="p">[</span><span class="n">theta_row</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span> <span class="k">for</span> <span class="n">theta_row</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">]</span>
+
+        <span class="c">#end = time.clock()</span>
+        <span class="c">#logd(&#39;alpha to theta: {} s &#39;.format(end-start))</span>
+        <span class="c">#print &#39;theta d2&#39;</span>
+        <span class="c">#print self.theta[0][1,:]</span>
+        <span class="c">#print &#39;phi w2&#39;</span>
+        <span class="c">#print self.theta[1][:,1]</span>
+        <span class="c">#print &#39;phi w4&#39;</span>
+        <span class="c">#print self.theta[1][:,3]</span>
+
+        <span class="c"># REPARAM</span>
+        <span class="c"># update bdd_param for all plates</span>
+        <span class="c">#start = time.clock()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reparam2</span><span class="p">()</span>
+        <span class="c">#end = time.clock()</span>
+        <span class="c">#logd(&#39;reparam: {} s &#39;.format(end-start))</span>
+</div>
+    <span class="k">def</span> <span class="nf">reparam2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">pb_plate</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">plates</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">reparam_cy</span><span class="p">(</span>
+                <span class="n">pb_plate</span><span class="o">.</span><span class="n">cat_list</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">,</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">,</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">kid</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">reparam</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">pb_plate</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pb_model</span><span class="o">.</span><span class="n">plates</span><span class="p">:</span>
+            <span class="n">bdd_param_plate</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">n</span><span class="p">,</span><span class="n">cat_d</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">cat_list</span><span class="p">):</span>
+                <span class="c"># build reparams</span>
+                <span class="n">P</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">cat_d</span><span class="p">)</span>
+                <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">),</span><span class="n">L</span> <span class="ow">in</span> <span class="n">cat_d</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">L</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                        <span class="n">P</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">L</span><span class="p">[</span><span class="mi">0</span><span class="p">]]]</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">P</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reparam_row</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">,</span><span class="n">L</span><span class="p">])</span>
+                <span class="c"># apply them</span>
+                <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+                    <span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span> <span class="o">=</span> <span class="n">pb_plate</span><span class="o">.</span><span class="n">plate</span><span class="p">[</span><span class="n">n</span><span class="p">,</span><span class="n">m</span><span class="p">]</span>
+                    <span class="n">bdd_param_plate</span><span class="p">[</span><span class="n">n</span><span class="p">,</span><span class="n">m</span><span class="p">]</span> <span class="o">=</span> <span class="n">P</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)][</span><span class="n">pb_plate</span><span class="o">.</span><span class="n">kid</span><span class="p">[</span><span class="n">n</span><span class="p">,</span><span class="n">m</span><span class="p">]]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bdd_param</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">bdd_param_plate</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">reparam_row</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">all_params</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">((</span><span class="n">params</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)))</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">all_params</span><span class="p">[</span><span class="n">j</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">all_params</span><span class="p">[</span><span class="n">j</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">all_params</span><span class="p">[:</span><span class="n">j</span><span class="p">,</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">all_params</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">likelihood</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">joint_uncollapsed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># uncollapsed likelihood</span>
+        <span class="n">log_ll</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">x_distrib</span><span class="p">,</span> <span class="n">theta_distrib</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">theta</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">x_val</span><span class="p">,</span> <span class="n">theta_val</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span>
+                <span class="n">theta_distrib</span><span class="o">.</span><span class="n">flatten</span><span class="p">()):</span>
+                <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">x_val</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">theta_val</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">log_ll</span>
+
+    <span class="k">def</span> <span class="nf">joint_collapsed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># collapsed likelihood</span>
+        <span class="n">log_ll</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">x_distrib</span><span class="p">,</span> <span class="n">alpha_d</span><span class="p">,</span> <span class="n">symm</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha_tiled</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">symmetric</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">symm</span><span class="p">:</span>
+                <span class="n">alpha_row</span> <span class="o">=</span> <span class="n">alpha_d</span><span class="p">[</span><span class="mi">0</span><span class="p">,:]</span>
+                <span class="n">k_a</span> <span class="o">=</span> <span class="n">alpha_row</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">alpha_v</span> <span class="o">=</span> <span class="n">alpha_row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">alpha_v2</span> <span class="o">=</span> <span class="n">k_a</span><span class="o">*</span><span class="n">alpha_v</span>
+                <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">x_distrib</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_v2</span><span class="p">)</span><span class="o">-</span>
+                    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_row</span><span class="p">)))</span>
+                <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">))</span>
+                <span class="n">log_ll</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">x_distrib</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">alpha_d</span><span class="p">))</span> <span class="o">-</span>
+                    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_d</span><span class="p">)))</span>
+                <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">))</span>
+                <span class="n">log_ll</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)))</span>
+        <span class="k">return</span> <span class="n">log_ll</span>
+
+    <span class="k">def</span> <span class="nf">likelihood_lda</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">log_ll</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">x_distrib</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">alpha_d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha_tiled</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">symm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">symmetric</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">symm</span><span class="p">:</span>
+            <span class="n">alpha_row</span> <span class="o">=</span> <span class="n">alpha_d</span><span class="p">[</span><span class="mi">0</span><span class="p">,:]</span>
+            <span class="n">k_a</span> <span class="o">=</span> <span class="n">alpha_row</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">alpha_v</span> <span class="o">=</span> <span class="n">alpha_row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">alpha_v2</span> <span class="o">=</span> <span class="n">k_a</span><span class="o">*</span><span class="n">alpha_v</span>
+            <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">x_distrib</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_v2</span><span class="p">)</span><span class="o">-</span>
+                <span class="n">k_a</span><span class="o">*</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_v</span><span class="p">))</span>
+            <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">))</span>
+            <span class="n">log_ll</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">x_distrib</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">alpha_d</span><span class="p">))</span> <span class="o">-</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">alpha_d</span><span class="p">)))</span>
+            <span class="n">log_ll</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">))</span>
+            <span class="n">log_ll</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">gammaln</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">x_distrib</span><span class="o">+</span><span class="n">alpha_d</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)))</span>
+        <span class="k">return</span> <span class="n">log_ll</span>
+</div>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="k">pass</span>
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Calin Rares Turliuc.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>prob_inference_dev &mdash; peircebayes 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="peircebayes 0.0.1 documentation" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">peircebayes 0.0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="prob-inference-dev">
+<h1>prob_inference_dev<a class="headerlink" href="#prob-inference-dev" title="Permalink to this headline">¶</a></h1>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">synopsis:</th><td class="field-body">Cython module for inner loop methods for <a class="reference internal" href="prob_inference.html#module-prob_inference" title="prob_inference"><code class="xref py py-mod docutils literal"><span class="pre">prob_inference</span></code></a> in a <a class="reference internal" href="formulagen.html#formula_gen.PBModel" title="formula_gen.PBModel"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBModel</span></code></a>.</td>
+</tr>
+</tbody>
+</table>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">synopsis:</th><td class="field-body">Cython module for inner loop methods for <a class="reference internal" href="prob_inference.html#module-prob_inference" title="prob_inference"><code class="xref py py-mod docutils literal"><span class="pre">prob_inference</span></code></a> in a <a class="reference internal" href="formulagen.html#formula_gen.PBModel" title="formula_gen.PBModel"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBModel</span></code></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>My name is <code class="xref py py-mod docutils literal"><span class="pre">prob_inference_dev</span></code>.</p>
+<p>Typedefs:</p>
+<div class="highlight-python"><div class="highlight"><pre>ctypedef np.int_t DINT_t
+ctypedef np.float_t DFLOAT_t
+</pre></div>
+</div>
+<p>Variables:</p>
+<p>N = number of observations on a plate (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>).</p>
+<p>M = number of propositional variables (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>).</p>
+<p>NNodes = number of nodes in a bdd (see <a class="reference internal" href="knowledge_compilation.html#knowledge_compilation.BDD" title="knowledge_compilation.BDD"><code class="xref py py-class docutils literal"><span class="pre">knowledge_compilation.BDD</span></code></a>).</p>
+<dl class="function">
+<dt id="prob_inference_dev.seed_gsl_cy">
+<code class="descclassname">prob_inference_dev.</code><code class="descname">seed_gsl_cy</code><span class="sig-paren">(</span><em>unsigned int seed</em><span class="sig-paren">)</span><a class="headerlink" href="#prob_inference_dev.seed_gsl_cy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Seed the GNU scientific library (gsl) random number generator (rng).</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>seed</strong> (<em>unsigned int</em>) &#8211; seed for rng</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="prob_inference_dev.backward_plate_cy">
+<code class="descclassname">prob_inference_dev.</code><code class="descname">backward_plate_cy</code><span class="sig-paren">(</span><em>np.ndarray[DINT_t</em>, <em>ndim=2]      bdd</em>, <em>np.ndarray[DINT_t</em>, <em>ndim=3]      plate</em>, <em>np.ndarray[DFLOAT_t</em>, <em>ndim=2]    prob</em><span class="sig-paren">)</span><a class="headerlink" href="#prob_inference_dev.backward_plate_cy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute backward probability for a set of identical BDDs (with different parameters).</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>bdd</strong> (see <a class="reference internal" href="knowledge_compilation.html#knowledge_compilation.BDD" title="knowledge_compilation.BDD"><code class="xref py py-class docutils literal"><span class="pre">knowledge_compilation.BDD</span></code></a>) &#8211; </li>
+<li><strong>plate</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">ndarray of shape [N, NNodes, 2]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="prob_inference_dev.sample_bdd_plate_cy">
+<code class="descclassname">prob_inference_dev.</code><code class="descname">sample_bdd_plate_cy</code><span class="sig-paren">(</span><em>np.ndarray[DINT_t</em>, <em>ndim=3]      plate</em>, <em>np.ndarray[DINT_t</em>, <em>ndim=2]      bdd</em>, <em>np.ndarray[DINT_t</em>, <em>ndim=1]      reps</em>, <em>np.ndarray[DFLOAT_t</em>, <em>ndim=3]    beta</em>, <em>np.ndarray[DFLOAT_t</em>, <em>ndim=2]    prob</em>, <em>x # TODO optimize to array</em><span class="sig-paren">)</span><a class="headerlink" href="#prob_inference_dev.sample_bdd_plate_cy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sample a set of BDDs and update x. Sampling x means:</p>
+<ol class="arabic simple">
+<li><a class="reference internal" href="#prob_inference_dev.backward_plate_cy" title="prob_inference_dev.backward_plate_cy"><code class="xref py py-func docutils literal"><span class="pre">backward_plate_cy()</span></code></a></li>
+<li><a class="reference internal" href="prob_inference_dev.html#sample_bdd_plate_cy" title="sample_bdd_plate_cy"><code class="xref py py-func docutils literal"><span class="pre">sample_bdd_plate_cy()</span></code></a></li>
+</ol>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>plate</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+<li><strong>bdd</strong> (see <a class="reference internal" href="knowledge_compilation.html#knowledge_compilation.BDD" title="knowledge_compilation.BDD"><code class="xref py py-class docutils literal"><span class="pre">knowledge_compilation.BDD</span></code></a>) &#8211; </li>
+<li><strong>reps</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+<li><strong>beta</strong> (returned by <a class="reference internal" href="#prob_inference_dev.backward_plate_cy" title="prob_inference_dev.backward_plate_cy"><code class="xref py py-func docutils literal"><span class="pre">backward_plate_cy()</span></code></a>) &#8211; </li>
+<li><strong>prob</strong> (returned by <a class="reference internal" href="prob_inference_dev.html#reparam_cy" title="reparam_cy"><code class="xref py py-func docutils literal"><span class="pre">reparam_cy()</span></code></a> (spoiler NXM ndarray)) &#8211; probabilities of the propositional variables in the BDDs</li>
+<li><strong>x</strong> (list of NDist ndarrays, each of shape n_vars X n_cat (see <a class="reference internal" href="formulagen.html#formula_gen.PBModel" title="formula_gen.PBModel"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBModel</span></code></a>)) &#8211; datastructure for x</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference external" href="http://docs.python.org/library/constants.html#None" title="(in Python v2.7)">None</a></p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="prob_inference_dev.reparam_cy">
+<code class="descclassname">prob_inference_dev.</code><code class="descname">reparam_cy</code><span class="sig-paren">(</span><em>cat_list</em>, <em>theta</em>, <em>np.ndarray[DINT_t</em>, <em>ndim=3] plate</em>, <em>np.ndarray[DINT_t</em>, <em>ndim=2] kid</em><span class="sig-paren">)</span><a class="headerlink" href="#prob_inference_dev.reparam_cy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the parameters of the propositional variables in the BDDs based on theta.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>cat_list</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+<li><strong>theta</strong> (list of NDist ndarrays, each of shape n_vars X n_cat (see <a class="reference internal" href="formulagen.html#formula_gen.PBModel" title="formula_gen.PBModel"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBModel</span></code></a>)) &#8211; </li>
+<li><strong>plate</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+<li><strong>kid</strong> (see <a class="reference internal" href="formulagen.html#formula_gen.PBPlate" title="formula_gen.PBPlate"><code class="xref py py-class docutils literal"><span class="pre">formula_gen.PBPlate</span></code></a>) &#8211; </li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">ndarray of shape N X M</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/probinf_cy.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">peircebayes 0.0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Calin Rares Turliuc.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

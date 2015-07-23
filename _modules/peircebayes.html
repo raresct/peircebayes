@@ -1,0 +1,327 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>peircebayes &mdash; peircebayes 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="peircebayes 0.0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for peircebayes</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python2</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">:synopsis: Module for peircebayes entry script.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">pkg_resources</span> <span class="kn">import</span> <span class="n">resource_filename</span>
+
+<span class="kn">from</span> <span class="nn">formula_gen</span> <span class="kn">import</span> <span class="n">PBModel</span>
+<span class="kn">from</span> <span class="nn">knowledge_compilation</span> <span class="kn">import</span> <span class="n">compile_k</span>
+<span class="kn">from</span> <span class="nn">prob_inference</span> <span class="kn">import</span> <span class="n">PBInference</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+
+<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="c"># logging stuff</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">logging</span> <span class="kn">import</span> <span class="n">debug</span> <span class="k">as</span> <span class="n">logd</span>
+
+<div class="viewcode-block" id="rewrite_dir"><a class="viewcode-back" href="../peircebayes.html#peircebayes.rewrite_dir">[docs]</a><span class="k">def</span> <span class="nf">rewrite_dir</span><span class="p">(</span><span class="n">dir_path</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Ovewrite the argument directory path.</span>
+
+<span class="sd">    :param dir_path: directory path to overwrite</span>
+<span class="sd">    :type dir_path: path</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">dir_path</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">dir_path</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">dir_path</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">dir_path</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="logical_inference"><a class="viewcode-back" href="../peircebayes.html#peircebayes.logical_inference">[docs]</a><span class="k">def</span> <span class="nf">logical_inference</span><span class="p">(</span><span class="n">in_file</span><span class="p">,</span> <span class="n">tmp_dir</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The logical inference part of the peircebayes pipeline.</span>
+
+<span class="sd">    :param in_file: input file for peircebayes</span>
+<span class="sd">    :type in_file: path</span>
+<span class="sd">    :param tmp_dir: directory for results</span>
+<span class="sd">    :type tmp_dir: path</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">in_file_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="n">query_file_name</span> <span class="o">=</span> <span class="s">&#39;query.pl&#39;</span>
+    <span class="n">aprob_file_name</span><span class="o">=</span><span class="s">&#39;aprob.pl&#39;</span>
+    <span class="n">query_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">query_file_name</span><span class="p">)</span>
+    <span class="n">aprob_out_name</span> <span class="o">=</span> <span class="s">&#39;aprob&#39;</span>
+    <span class="n">aprob_out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">aprob_out_name</span><span class="p">)</span>
+    <span class="n">plate_out_name</span> <span class="o">=</span> <span class="s">&#39;plates&#39;</span>
+    <span class="n">plate_out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">aprob_out</span><span class="p">,</span> <span class="n">plate_out_name</span><span class="p">)</span>
+    <span class="c"># installed</span>
+    <span class="n">aprob_file</span> <span class="o">=</span> <span class="n">resource_filename</span><span class="p">(</span><span class="s">&#39;peircebayes&#39;</span><span class="p">,</span><span class="n">aprob_file_name</span><span class="p">)</span>
+    <span class="c"># not installed</span>
+    <span class="c">#aprob_file = os.path.join(&#39;/home/rares/p/peircebayes/peircebayes/&#39;,</span>
+    <span class="c">#    aprob_file_name)</span>
+    <span class="n">copy_in_file_name</span> <span class="o">=</span> <span class="s">&#39;in_file.pl&#39;</span>
+    <span class="n">copy_in_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">copy_in_file_name</span><span class="p">)</span>
+    <span class="n">pl_log_file_name</span> <span class="o">=</span> <span class="s">&#39;aprob.log&#39;</span>
+    <span class="n">pl_log_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">pl_log_file_name</span><span class="p">)</span>
+
+    <span class="c"># create temporary dir and copy input to in_file.pl</span>
+    <span class="c">#rewrite_dir(tmp_dir) # this was moved to main function</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">aprob_out</span><span class="p">)</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">plate_out</span><span class="p">)</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">in_file</span><span class="p">,</span> <span class="n">tmp_dir</span><span class="p">)</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">move</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">in_file_name</span><span class="p">),</span> <span class="n">copy_in_file</span><span class="p">)</span>
+
+    <span class="c"># write query file</span>
+    <span class="n">write_query_file</span><span class="p">(</span><span class="n">query_file</span><span class="p">,</span> <span class="n">aprob_file</span><span class="p">,</span> <span class="n">copy_in_file</span><span class="p">)</span>
+
+    <span class="c"># call prolog</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">pl_log_file</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fout</span><span class="p">:</span>
+        <span class="c">#p1 = subprocess.Popen([&#39;sicstus&#39;, &#39;-l&#39;, query_file, &#39;--noinfo&#39;],</span>
+        <span class="c">#    stdout=fout, stderr=fout)</span>
+        <span class="c"># yap</span>
+        <span class="n">p1</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">([</span><span class="s">&#39;yap&#39;</span><span class="p">,</span> <span class="s">&#39;-l&#39;</span><span class="p">,</span> <span class="n">query_file</span><span class="p">],</span>
+            <span class="n">stdout</span><span class="o">=</span><span class="n">fout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">fout</span><span class="p">)</span>
+        <span class="n">p1</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="write_query_file"><a class="viewcode-back" href="../peircebayes.html#peircebayes.write_query_file">[docs]</a><span class="k">def</span> <span class="nf">write_query_file</span><span class="p">(</span><span class="n">query_file</span><span class="p">,</span> <span class="n">aprob_file</span><span class="p">,</span> <span class="n">copy_in_file</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create query file for prolog. Used by :func:`logical_inference`.</span>
+
+<span class="sd">    :param query_file: query file</span>
+<span class="sd">    :type query_file: path</span>
+<span class="sd">    :param aprob_file: path to aprob source</span>
+<span class="sd">    :type aprob_file: path</span>
+<span class="sd">    :param copy_in_file: path to a copy of in_file</span>
+<span class="sd">    :type copy_in_file: path</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">query_str</span> <span class="o">=</span> <span class="s">&#39;load_pb&#39;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">query_file</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fout</span><span class="p">:</span>
+        <span class="n">fout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;&#39;&#39;</span>
+<span class="si">% lo</span><span class="s">ad the Aprob prolog file</span>
+<span class="s">:- [&#39;{}&#39;].</span>
+<span class="si">% lo</span><span class="s">ad the input file and query</span>
+<span class="s">:- {}(&#39;{}&#39;).</span>
+<span class="si">% s</span><span class="s">top prolog</span>
+<span class="s">:- halt.</span>
+<span class="s">&#39;&#39;&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">aprob_file</span><span class="p">,</span> <span class="n">query_str</span><span class="p">,</span> <span class="n">copy_in_file</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="parse_and_compile"><a class="viewcode-back" href="../peircebayes.html#peircebayes.parse_and_compile">[docs]</a><span class="k">def</span> <span class="nf">parse_and_compile</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse files produced by :func:`logical_inference` and compile them to a :class:`formula_gen.PBModel`.</span>
+
+<span class="sd">    :rtype: :class:`formula_gen.PBModel`</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">option_args</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;probs_file&#39;</span>    <span class="p">:</span> <span class="s">&#39;/tmp/peircebayes/aprob/out.probs&#39;</span><span class="p">,</span>
+        <span class="s">&#39;dir_file&#39;</span>      <span class="p">:</span> <span class="s">&#39;/tmp/peircebayes/aprob/plates&#39;</span>
+    <span class="p">}</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">PBModel</span><span class="p">(</span><span class="n">option_args</span><span class="p">)</span>
+    <span class="n">compile_k</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="c"># prune empty bdds</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">plates</span> <span class="o">=</span> <span class="p">[</span><span class="n">plate</span> <span class="k">for</span> <span class="n">plate</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">plates</span> <span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">bdd</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)]</span>
+    <span class="c">#logd(model)</span>
+    <span class="k">return</span> <span class="n">model</span>
+</div>
+<div class="viewcode-block" id="probabilistic_inference"><a class="viewcode-back" href="../peircebayes.html#peircebayes.probabilistic_inference">[docs]</a><span class="k">def</span> <span class="nf">probabilistic_inference</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">options</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The probabilistic inference part of the peircebayes pipeline. Should be called after :func:`parse_and_compile`.</span>
+<span class="sd">    </span>
+<span class="sd">    :param model: model built by knowledge compilation</span>
+<span class="sd">    :type model: :class:`formula_gen.PBModel`</span>
+<span class="sd">    :param options: options for inference</span>
+<span class="sd">    :type options: dict</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">inf</span> <span class="o">=</span> <span class="n">PBInference</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="n">inf</span><span class="o">.</span><span class="n">gibbs_sampler_plates</span><span class="p">(</span><span class="o">**</span><span class="n">options</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s">&#39;/tmp/peircebayes/avg_samples&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">inf</span><span class="o">.</span><span class="n">theta_avg</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s">&#39;/tmp/peircebayes/last_sample&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">inf</span><span class="o">.</span><span class="n">theta</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s">&#39;/tmp/peircebayes/first_sample&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">inf</span><span class="o">.</span><span class="n">first_sample</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="cl_parse"><a class="viewcode-back" href="../peircebayes.html#peircebayes.cl_parse">[docs]</a><span class="k">def</span> <span class="nf">cl_parse</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Creates the command line argument parser.</span>
+<span class="sd">    </span>
+<span class="sd">    :rtype: :class:`argparse.ArgumentParser`    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+        <span class="n">formatter_class</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentDefaultsHelpFormatter</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;in_file&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;input pb file&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-n&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;number of samples&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-b&quot;</span><span class="p">,</span> <span class="s">&quot;--burn&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;number of burn-in iterations&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-l&quot;</span><span class="p">,</span> <span class="s">&quot;--lag&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;keep samples every l iterations (l=1 means no lag)&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-s&quot;</span><span class="p">,</span> <span class="s">&quot;--seed&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="mi">1234</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;seed for numpy rng&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-t&quot;</span><span class="p">,</span> <span class="s">&quot;--track&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;include metric information (see -m)&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-d&quot;</span><span class="p">,</span><span class="s">&quot;--debug&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;include some debug information&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span><span class="s">&quot;--config&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;load arguments from json as in_file&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-m&quot;</span><span class="p">,</span><span class="s">&quot;--metric&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;joint&#39;</span><span class="p">,</span> <span class="s">&#39;lda_ll&#39;</span><span class="p">],</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="s">&#39;joint&#39;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;choose metric to track&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&quot;-a&quot;</span><span class="p">,</span><span class="s">&quot;--algo&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;ungibbs&#39;</span><span class="p">,</span> <span class="s">&#39;amcmc&#39;</span><span class="p">],</span>
+        <span class="n">default</span> <span class="o">=</span> <span class="s">&#39;ungibbs&#39;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&#39;&#39;&#39;choose sampling algorithm. </span>
+<span class="s">    &#39;ungibbs&#39; is uncollapsed gibbs sampling on x and theta</span>
+<span class="s">    &#39;amcmc&#39; is ancestral mcmc, i.e. sample x and theta is E[Dir(alpha+x)]</span>
+<span class="s">        &#39;&#39;&#39;</span><span class="p">)</span>    
+    <span class="k">return</span> <span class="n">parser</span>
+</div>
+<div class="viewcode-block" id="peircebayes"><a class="viewcode-back" href="../peircebayes.html#peircebayes.peircebayes">[docs]</a><span class="k">def</span> <span class="nf">peircebayes</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Main function. Parses args, then runs the peircebayes pipeline: </span>
+<span class="sd">    </span>
+<span class="sd">    1. :func:`logical_inference`</span>
+<span class="sd">    2. :func:`parse_and_compile`</span>
+<span class="sd">    3. :func:`probabilistic_inference`</span>
+
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">cl_args</span> <span class="o">=</span> <span class="n">cl_parse</span><span class="p">()</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">cl_args</span><span class="o">.</span><span class="n">in_file</span><span class="p">)</span> <span class="k">if</span> <span class="n">cl_args</span><span class="o">.</span><span class="n">config</span> <span class="k">else</span> <span class="n">cl_args</span>
+    <span class="n">tmp_dir</span> <span class="o">=</span> <span class="s">&#39;/tmp/peircebayes&#39;</span> <span class="c"># TODO make this an option... maybe?</span>
+    <span class="n">rewrite_dir</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="s">&#39;/tmp/peircebayes/pb.log&#39;</span><span class="p">,</span>
+            <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">gibbs_options</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;n&#39;</span>         <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">n</span><span class="p">,</span>
+        <span class="s">&#39;burn_in&#39;</span>   <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">burn</span><span class="p">,</span>
+        <span class="s">&#39;lag&#39;</span>       <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">lag</span><span class="p">,</span>
+        <span class="s">&#39;track_ll&#39;</span>  <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">track</span><span class="p">,</span>
+        <span class="s">&#39;in_file&#39;</span>   <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">in_file</span><span class="p">,</span>
+        <span class="s">&#39;metric&#39;</span>    <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">metric</span><span class="p">,</span>
+        <span class="s">&#39;algo&#39;</span>      <span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">algo</span>
+    <span class="p">}</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;### Started Logical Inference ###&#39;</span><span class="p">)</span>
+    <span class="n">t_li_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">logical_inference</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">in_file</span><span class="p">,</span> <span class="n">tmp_dir</span><span class="p">)</span>
+    <span class="n">t_li_end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;Finished Logical Inference in:</span><span class="se">\n</span><span class="s">{} seconds&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">t_li_end</span><span class="o">-</span><span class="n">t_li_start</span><span class="p">))</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;### Started Knowledge Compilation ###&#39;</span><span class="p">)</span>
+    <span class="n">t_kc_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">parse_and_compile</span><span class="p">()</span>
+    <span class="n">t_kc_end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;Finished Knowledge Compilation in:</span><span class="se">\n</span><span class="s">{} seconds&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">t_kc_end</span><span class="o">-</span><span class="n">t_kc_start</span><span class="p">))</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;### Started Probabilistic Inference ###&#39;</span><span class="p">)</span>
+    <span class="n">t_pi_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">probabilistic_inference</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">gibbs_options</span><span class="p">)</span>
+    <span class="n">t_pi_end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">logd</span><span class="p">(</span><span class="s">&#39;Finished Probabilistic Inference in:</span><span class="se">\n</span><span class="s">{} seconds&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">t_pi_end</span><span class="o">-</span><span class="n">t_pi_start</span><span class="p">))</span>
+</div>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="n">peircebayes</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Calin Rares Turliuc.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

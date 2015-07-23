@@ -1,0 +1,37 @@
+DEBUG:root:### COIN BETA ARGS ###
+DEBUG:root:Param should be Beta(15, 85) distributed.
+DEBUG:root:Learned params:
+[ 0.84673758]
+DEBUG:root:### COIN CATEGORICAL ###
+DEBUG:root:Param should be (0.5, 0.5).
+DEBUG:root:Learned params:
+[ 0.5]
+DEBUG:root:Norm2:
+0.0
+DEBUG:root:### COINS2 ###
+DEBUG:root:Original params:
+[ 0.7  0.2  0.9]
+DEBUG:root:Learned params:
+[ 0.69993965  0.21279646  0.89339835]
+DEBUG:root:Norm2:
+0.0143991282851
+DEBUG:root:### LDA1 ###
+DEBUG:root:Learned mu:
+[[ 0.47524304  0.52475696]
+ [ 0.43669643  0.56330357]
+ [ 0.53864583  0.46135417]]
+DEBUG:root:Learned phi:
+[[ 0.3547033   0.19460647  0.14209728  0.30859294]
+ [ 0.37484926  0.13645532  0.11051976  0.37817567]]
+DEBUG:root:### RIM1 ###
+DEBUG:root:### RIM2 ###
+DEBUG:root:Original params:
+[ 0.09090909  0.90909091]
+[ 0.00900901  0.09009009  0.9009009 ]
+[ 0.00090009  0.0090009   0.090009    0.90009001]
+DEBUG:root:Learned params:
+[ 0.0986068  0.9013932]
+[ 0.01354045  0.09044746  0.89601209]
+[ 0.00151499  0.01349335  0.0919959   0.89299576]
+DEBUG:root:Norm2:
+0.00873749703263

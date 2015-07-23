@@ -1,0 +1,378 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>formula_gen &mdash; peircebayes 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="peircebayes 0.0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for formula_gen</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python2</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">:synopsis: Module for parsing abductive solutions and formula generation. BDDs are compiled in :mod:`knowledge_compilation`.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">copy</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="c"># logging stuff</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">logging</span> <span class="kn">import</span> <span class="n">debug</span> <span class="k">as</span> <span class="n">logd</span>
+
+<div class="viewcode-block" id="PBPlate"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBPlate">[docs]</a><span class="k">class</span> <span class="nc">PBPlate</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Container for:</span>
+
+<span class="sd">    * plate: NXMX3 array, where</span>
+<span class="sd">    </span>
+<span class="sd">        * N = number of data points</span>
+<span class="sd">        * M = number of propositional variables</span>
+<span class="sd">        * plate[N,M] = (i,j,k), where</span>
+<span class="sd">        </span>
+<span class="sd">            * i,j = index of the random variable</span>
+<span class="sd">            * k = category of the random variable</span>
+
+<span class="sd">    * reps: NX1 array, where</span>
+<span class="sd">    </span>
+<span class="sd">        * reps[N] = how many times the data point is repeated</span>
+
+<span class="sd">    * cat_list: NX1 list, where</span>
+<span class="sd">    </span>
+<span class="sd">        * cat_list[N] is a dictionary {(i,j) : L}, where</span>
+<span class="sd">        </span>
+<span class="sd">            * L = list of categories that the variable indexed by i and j takes in some data point N</span>
+
+<span class="sd">    * kid: NXM array, where:</span>
+<span class="sd">    </span>
+<span class="sd">        * assume plate[N,M] = i,j,k, then kid[N,M] = cat_list[N][(i,j)].index(k), i.e. the index of the category of variable i,j in the cat_list for data point N</span>
+
+<span class="sd">    * f_str: the string of the formula, with the following operators:</span>
+<span class="sd">    </span>
+<span class="sd">        * &#39;&amp;&#39; - AND</span>
+<span class="sd">        * &#39;|&#39; - OR</span>
+<span class="sd">        * &#39;~&#39; - NOT</span>
+
+<span class="sd">    * bdd: A BDD object created after knowledge compilation (default None)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plate</span><span class="p">,</span> <span class="n">reps</span><span class="p">,</span> <span class="n">kid</span><span class="p">,</span> <span class="n">cat_list</span><span class="p">,</span> <span class="n">f_str</span><span class="p">,</span> <span class="n">bdd</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plate</span>      <span class="o">=</span> <span class="n">plate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reps</span>       <span class="o">=</span> <span class="n">reps</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cat_list</span>   <span class="o">=</span> <span class="n">cat_list</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">kid</span>        <span class="o">=</span> <span class="n">kid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">f_str</span>      <span class="o">=</span> <span class="n">f_str</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bdd</span>        <span class="o">=</span> <span class="n">bdd</span>
+        </div>
+<div class="viewcode-block" id="PBModel"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel">[docs]</a><span class="k">class</span> <span class="nc">PBModel</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Instances of this class are passed to the probabilistic inference. Takes a dictionary option_args with keys:</span>
+
+<span class="sd">    * &#39;probs_file&#39;    : string of path to the pb file containing definitions of probability distributions</span>
+<span class="sd">    * &#39;dir_file&#39;      : string of path to the pb directory containing pb plate files</span>
+<span class="sd">    </span>
+<span class="sd">    and a constant defined in constructor:</span>
+<span class="sd">    </span>
+<span class="sd">    * frozen_types    : a list of types of frozen distributions  </span>
+<span class="sd">    </span>
+<span class="sd">    and parses the files to produce:</span>
+
+<span class="sd">    * plates : a list of P :class:`PBPlate` objects, where</span>
+<span class="sd">    </span>
+<span class="sd">        * P = number of plates</span>
+<span class="sd">        </span>
+<span class="sd">    * distribs : a list of NDist tuples (args, n_cat, n_vars, frozen), where</span>
+<span class="sd">        </span>
+<span class="sd">        * NDist   = number of probability distributions  </span>
+<span class="sd">        * args    = vector of (hyper)parameters</span>
+<span class="sd">        * n_cat   = number of categories</span>
+<span class="sd">        * n_vars  = number of distributions sampled from distrib_args</span>
+<span class="sd">        * frozen  = boolean, if True, distribution is frozen</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option_args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">probs_file</span>     <span class="o">=</span> <span class="n">option_args</span><span class="p">[</span><span class="s">&#39;probs_file&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dir_file</span>       <span class="o">=</span> <span class="n">option_args</span><span class="p">[</span><span class="s">&#39;dir_file&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">frozen_types</span>   <span class="o">=</span> <span class="p">[</span><span class="s">&#39;categorical&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s">&#39;&#39;&#39;</span>
+<span class="s">Plate {}:</span>
+<span class="s">    Plate indexes:</span>
+<span class="s">    {}</span>
+<span class="s">    Plate reps:</span>
+<span class="s">    {}</span>
+<span class="s">    Plate cat_list:</span>
+<span class="s">    {}</span>
+<span class="s">    Plate kid:</span>
+<span class="s">    {}</span>
+<span class="s">    Plate f_str:</span>
+<span class="s">    {}</span>
+<span class="s">&#39;&#39;&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">plate</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">reps</span><span class="p">,</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">cat_list</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">kid</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">f_str</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">plates</span><span class="p">))])</span>
+
+<div class="viewcode-block" id="PBModel.parse"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel.parse">[docs]</a>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function. Called by __init__.</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">parse_probs</span><span class="p">()</span>
+            <span class="n">n_plate_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dir_file</span><span class="p">,</span> <span class="s">&#39;n_plates&#39;</span><span class="p">)</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">n_plate_file</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fin</span><span class="p">:</span>
+                <span class="n">n_plates</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">fin</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plates</span> <span class="o">=</span> <span class="p">[</span><span class="n">PBPlate</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">parse_plate</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="n">n_plates</span><span class="o">+</span><span class="mi">1</span><span class="p">)]</span>
+        <span class="k">except</span> <span class="ne">IOError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s">&#39;Parsing failed: &#39;</span><span class="o">+</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="PBModel.parse_plate"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel.parse_plate">[docs]</a>    <span class="k">def</span> <span class="nf">parse_plate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parses a plate file. Returns a tuple of plate, reps, kid, cat_list, f_str to create a :class:`PBPlate` object. Called by :func:`parse`.</span>
+<span class="sd">        </span>
+<span class="sd">        :param i: index of the plate</span>
+<span class="sd">        :type i: int</span>
+<span class="sd">        :rtype: tuple</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">plate_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dir_file</span><span class="p">,</span><span class="s">&#39;out{}.plate&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">plate_file</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fin</span><span class="p">:</span>
+            <span class="n">plate</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">kid</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">reps</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">cat_list</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">fin</span><span class="p">:</span>
+                <span class="n">line_split</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+                <span class="n">line_sols</span><span class="p">,</span> <span class="n">line_reps</span> <span class="o">=</span> <span class="n">line_split</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">line_split</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">reps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">line_reps</span><span class="p">))</span>
+                <span class="n">cat_d</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="n">plate_row</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">line_idxs</span> <span class="ow">in</span> <span class="n">line_sols</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">idxs</span> <span class="ow">in</span> <span class="n">line_idxs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">):</span>
+                        <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">idxs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)]</span>
+                        <span class="k">if</span> <span class="n">cat_d</span><span class="o">.</span><span class="n">has_key</span><span class="p">((</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)):</span>
+                            <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]:</span>
+                                <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span> <span class="o">=</span> <span class="p">[</span><span class="n">k</span><span class="p">]</span>
+                        <span class="n">plate_row</span><span class="o">.</span><span class="n">add</span><span class="p">((</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">))</span>
+                <span class="c"># sort plate_row</span>
+                <span class="n">plate_row</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">plate_row</span><span class="p">),</span>
+                    <span class="n">key</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">x</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+                <span class="c"># sort cat_d and remove last choices from plate_row</span>
+                <span class="c"># if necessary (&gt;1 choice)</span>
+                <span class="c"># however, keep a copy of plate_row to generate</span>
+                <span class="c"># the formula from</span>
+                <span class="n">plate_row_f</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">plate_row</span><span class="p">)</span>
+                <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)</span> <span class="ow">in</span> <span class="n">cat_d</span><span class="p">:</span>
+                    <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)])</span>
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)])</span><span class="o">&gt;</span><span class="mi">1</span><span class="p">:</span>
+                        <span class="n">last_k</span> <span class="o">=</span> <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                        <span class="n">plate_row</span><span class="o">.</span><span class="n">remove</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">last_k</span><span class="p">))</span>
+                <span class="n">plate</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">plate_row</span><span class="p">)</span>
+                <span class="n">cat_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cat_d</span><span class="p">)</span>
+                <span class="n">kid_row</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span> <span class="ow">in</span> <span class="n">plate_row</span><span class="p">:</span>
+                    <span class="n">kid_row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">k</span><span class="p">))</span>
+                <span class="n">kid</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">kid_row</span><span class="p">)</span>
+            <span class="c"># convert to numpy</span>
+            <span class="n">plate</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">plate</span><span class="p">)</span>
+            <span class="n">reps</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">reps</span><span class="p">)</span>
+            <span class="n">kid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">kid</span><span class="p">)</span>
+            <span class="n">f_str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bool_gen</span><span class="p">(</span><span class="n">line_sols</span><span class="p">,</span> <span class="n">plate_row_f</span><span class="p">,</span> <span class="n">cat_d</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">plate</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">reps</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">kid</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">cat_list</span><span class="p">))</span>
+            <span class="c">#logd(plate)</span>
+            <span class="c">#logd(reps)</span>
+            <span class="c">#logd(kid)</span>
+            <span class="c">#logd(cat_list)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="s">&#39;f_str&#39;</span><span class="p">)</span>
+            <span class="n">logd</span><span class="p">(</span><span class="n">f_str</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">plate</span><span class="p">,</span> <span class="n">reps</span><span class="p">,</span> <span class="n">kid</span><span class="p">,</span> <span class="n">cat_list</span><span class="p">,</span> <span class="n">f_str</span>
+</div>
+<div class="viewcode-block" id="PBModel.bool_gen"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel.bool_gen">[docs]</a>    <span class="k">def</span> <span class="nf">bool_gen</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line_sols</span><span class="p">,</span> <span class="n">plate_row</span><span class="p">,</span> <span class="n">cat_d</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates a boolean function string from a single plate row (more specifically, the last one). Called by :func:`parse_plate`.</span>
+<span class="sd">        </span>
+<span class="sd">        :param line_sols: encoding of a DNF. &#39;;&#39; for OR, &#39;.&#39; for AND.</span>
+<span class="sd">        :type line_sols: string</span>
+<span class="sd">        :param plate_row: distinct choices (i,j,k) in line_sols </span>
+<span class="sd">        :type plate_row: set</span>
+<span class="sd">        :param cat_d: see cat_list[N] in the doc of :class:`PBPlate`.</span>
+<span class="sd">        :type cat_d: dict</span>
+<span class="sd">        :rtype: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c">#sols_l = [[[int( for] el for el in l.split(&#39;.&#39;)] for l in line_sols]</span>
+        <span class="c">#logd(sols_l)        </span>
+        <span class="c">#return</span>
+        <span class="n">sols_s</span> <span class="o">=</span> <span class="s">&#39;|&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">line_sols</span><span class="p">)</span>
+        <span class="c">#logd(plate_row)</span>
+        <span class="n">sols_s</span> <span class="o">=</span> <span class="n">sols_s</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="s">&#39;&amp;&#39;</span><span class="p">)</span>
+        <span class="c">#logd(sols_s)</span>
+        <span class="c">#logd(cat_d)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">)</span> <span class="ow">in</span> <span class="n">plate_row</span><span class="p">:</span>
+            <span class="n">k_list</span> <span class="o">=</span> <span class="n">cat_d</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">)]</span>
+            <span class="n">len_k_list</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">k_list</span><span class="p">)</span>
+            <span class="c"># find idx</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">cat_i</span><span class="p">,</span><span class="n">cat_j</span><span class="p">)</span> <span class="ow">in</span> <span class="n">cat_d</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">cat_i</span><span class="o">&lt;</span><span class="n">i</span> <span class="ow">or</span> <span class="p">(</span><span class="n">cat_i</span> <span class="o">==</span> <span class="n">i</span> <span class="ow">and</span> <span class="n">cat_j</span><span class="o">&lt;</span><span class="n">j</span><span class="p">):</span>
+                    <span class="n">idx</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">cat_d</span><span class="p">[(</span><span class="n">cat_i</span><span class="p">,</span><span class="n">cat_j</span><span class="p">)])</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">))</span>
+            <span class="n">start_idx</span> <span class="o">=</span> <span class="n">idx</span>
+            <span class="n">idx</span> <span class="o">+=</span> <span class="n">k_list</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+            <span class="c"># build ad_str</span>
+            <span class="n">ad_str</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+            <span class="k">if</span> <span class="n">len_k_list</span><span class="o">==</span><span class="mi">1</span><span class="p">:</span>
+                <span class="n">ad_str</span> <span class="o">=</span> <span class="s">&#39;v{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">k</span> <span class="o">==</span> <span class="n">k_list</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+                <span class="n">ad_str</span> <span class="o">=</span> <span class="s">&#39;&amp;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s">&#39;~v{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">vid</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">vid</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start_idx</span><span class="p">,</span> <span class="n">start_idx</span><span class="o">+</span><span class="n">len_k_list</span><span class="o">-</span><span class="mi">1</span><span class="p">)])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">ad_str</span> <span class="o">=</span> <span class="s">&#39;&amp;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s">&#39;~v{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">vid</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">vid</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start_idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">)]</span><span class="o">+</span>
+                    <span class="p">[</span><span class="s">&#39;v{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">idx</span><span class="p">)])</span>
+            <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">            logd((i,j,k))</span>
+<span class="sd">            logd(start_idx)</span>
+<span class="sd">            logd(idx)</span>
+<span class="sd">            logd(ad_str)</span>
+<span class="sd">            logd(k_list)</span>
+<span class="sd">            &#39;&#39;&#39;</span>
+            <span class="n">sols_s</span> <span class="o">=</span> <span class="s">&#39;|&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span> <span class="s">&#39;&amp;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span> <span class="n">ad_str</span> 
+                <span class="k">if</span> <span class="s">&#39;,&#39;</span> <span class="ow">in</span> <span class="n">s</span> <span class="ow">and</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">s</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)]</span> <span class="o">==</span> <span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">]</span> 
+                <span class="k">else</span> <span class="n">s</span>
+                <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">conj</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;&amp;&#39;</span><span class="p">)</span>
+              <span class="p">])</span> 
+                <span class="k">for</span> <span class="n">conj</span> <span class="ow">in</span> <span class="n">sols_s</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;|&#39;</span><span class="p">)</span>
+            <span class="p">])</span>
+            <span class="c">#logd(sols_s)</span>
+        <span class="k">return</span> <span class="n">sols_s</span>
+</div>
+<div class="viewcode-block" id="PBModel.parse_probs"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel.parse_probs">[docs]</a>    <span class="k">def</span> <span class="nf">parse_probs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parses the distribution file. Creates distribs (see doc for :class:`PBModel`). Called by :func:`parse`.</span>
+<span class="sd">        </span>
+<span class="sd">        :rtype: None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        
+        <span class="n">distribs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">probs_file</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fin</span><span class="p">:</span>
+            <span class="n">distribs</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">parse_distrib</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">fin</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">distribs</span> <span class="o">=</span> <span class="n">distribs</span>
+</div>
+<div class="viewcode-block" id="PBModel.parse_distrib"><a class="viewcode-back" href="../formulagen.html#formula_gen.PBModel.parse_distrib">[docs]</a>    <span class="k">def</span> <span class="nf">parse_distrib</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parses a single distribution and returns a tuple of args, n_cat, n_vars, frozen (see doc for :class:`PBModel`). Called by :func:`parse_probs`.</span>
+<span class="sd">        </span>
+<span class="sd">        :param d: String describing a distribution.</span>
+<span class="sd">        :type d: string</span>
+<span class="sd">        :rtype: tuple </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        
+        <span class="n">distrib_split</span> <span class="o">=</span> <span class="n">d</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">distrib_split</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+           <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;Probs file incorrectly written!&#39;</span><span class="p">)</span>
+        <span class="n">distrib_type</span> <span class="o">=</span> <span class="n">distrib_split</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">distrib_type</span> <span class="o">=</span> <span class="bp">True</span> <span class="k">if</span> <span class="n">distrib_type</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">frozen_types</span> <span class="k">else</span> <span class="bp">False</span>
+        <span class="n">distrib_n_vars</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">distrib_split</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+        <span class="n">distrib_n_cat</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">distrib_split</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">])</span>
+        <span class="n">distrib_args</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">distrib_split</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]])</span>
+        <span class="k">if</span> <span class="n">distrib_args</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span> <span class="c"># symmetric prior</span>
+            <span class="n">distrib_args</span> <span class="o">=</span> <span class="n">distrib_args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">distrib_n_cat</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">distrib_args</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">distrib_n_cat</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;Probs file incorrectly written!&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">distrib_args</span><span class="p">,</span> <span class="n">distrib_n_cat</span><span class="p">,</span> <span class="n">distrib_n_vars</span><span class="p">,</span> <span class="n">distrib_type</span><span class="p">)</span>
+</div></div>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="k">pass</span>
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">peircebayes 0.0.1 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Calin Rares Turliuc.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>
