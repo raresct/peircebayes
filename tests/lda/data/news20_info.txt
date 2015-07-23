@@ -1,4 +1,0 @@
-Size of dataset before pre-processing: 4891 documents.
-Size of dataset after pre-processing: 4777 documents
-Vocabulary: 72972 words
-Average document length: 126.169353151 words

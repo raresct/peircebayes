@@ -1,6 +1,0 @@
-peircebayes
-=======================================
-
-.. automodule:: peircebayes
-   :members:
-
