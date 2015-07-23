@@ -50,6 +50,29 @@ pyCUDD_ is used for compiling BDDs in Python. If you're feeling lucky, try the s
     export PYTHONPATH=$PYTHONPATH:~/Programs/pycudd2.0.2/pycudd
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/Programs/pycudd2.0.2/cudd-2.4.2/lib
 
+*PB install*
+
+To install PB (from PB folder):
+
+.. code-block:: sh
+
+    sudo python setup.py install
+
+Then try:
+
+.. code-block:: sh
+
+    peircebayes -h
+    
+And tests (from PB folder):
+
+.. code-block:: sh
+
+    cd tests
+    python tests.py core
+    python tests.py opt
+    
+
 How to cite
 -------------
 
