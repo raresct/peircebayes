@@ -9,9 +9,9 @@ data/
 misc/
 
 # graphics
-*.png
-*.svg
-*.pdf
+#*.png
+#*.svg
+#*.pdf
 *.dot
 !docs/peircebayes.png
 
@@ -71,7 +71,7 @@ coverage.xml
 *.log
 
 # Sphinx documentation
-docs/_build/
+#docs/_build/
 
 # PyBuilder
 target/
