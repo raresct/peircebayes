@@ -7,10 +7,10 @@ readme = open('README.rst').read()
 
 setup(name='peircebayes',
       version='0.0.1',
-      author='Calin-Rares Turliuc',
+      author='Calin Rares Turliuc',
       author_email='ct1810@imperial.ac.uk',
-      license='MIT',
-      description='PeirceBayes - Probabilistic Logic Programming',
+      license='GPL3',
+      description='peircebayes - Probabilistic Logic Programming',
       long_description=readme,
       packages=find_packages(),
       package_data={

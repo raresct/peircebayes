@@ -7,6 +7,10 @@
 import pycudd
 import sys
 import re
+import shutil
+import os
+import time
+import copy
 
 import numpy as np
 
@@ -14,44 +18,97 @@ import numpy as np
 import logging
 from logging import debug as logd
 
-def compile_k(pb_model):
+# parallel
+from joblib import Parallel, delayed
+import multiprocessing
+
+
+#class PickalableSwigPyObject(SwigPyObject, PickalableSWIG):
+#    def __init__(self, *args):
+#        self.args = args
+#        SwigPyObject.__init__(self)
+
+#class PickalableSWIG:
+#    def __setstate__(self, state):
+#        self.__init__(*state['args'])
+
+#    def __getstate__(self):
+#        return {'args': self.args}
+
+def compile_k(pb_model, debug, tmp_dir):
     """
     Adds a bdd attribute of type :class:`BDD` to each plate in a :class:`formula_gen.PBModel`. If f_str is empty, the BDD will be None.
-    
+
     :param pb_model:
     :type pb_model: :class:`formula_gen.PBModel`
     :rtype: None
-    
+
     """
-    for pb_plate in pb_model.plates:
+    mgr = pycudd.DdManager()
+    mgr.SetDefault()
+    for i, pb_plate in enumerate(pb_model.plates):
+        #logd(pb_plate.plate.shape)
         n_vars = pb_plate.plate.shape[1]
         if pb_plate.f_str:
-            bdd = BDD(pb_plate.f_str, n_vars)
+            bdd = BDD(mgr, pb_plate.f_str, n_vars, debug, i, tmp_dir)
             #pb_plate.bdd = bdd
             pb_plate.bdd = bdd.bdd
         else:
+            #logd('==='+str(i)+'===')
             pb_plate.bdd = None
+
+# doesn't work, don't know why, probably due to pycudd
+def compile_k_parallel(pb_model, debug, tmp_dir):
+    """
+    Adds a bdd attribute of type :class:`BDD` to each plate in a :class:`formula_gen.PBModel`. If f_str is empty, the BDD will be None.
+
+    :param pb_model:
+    :type pb_model: :class:`formula_gen.PBModel`
+    :rtype: None
+
+    """
+    logd('parallel_kc')
+    start = time.time()
+    mgr = pycudd.DdManager()
+    mgr.SetDefault()
+    mgrPickable = PickalableSwigPyObject(mgr)
+    n_cores = multiprocessing.cpu_count()
+    batch_size = int(float(len(pb_model.plates))/float(n_cores))
+    l = [copy.copy(pb_plate) for pb_plate in pb_model.plates]
+    bdds = Parallel(n_jobs=n_cores, batch_size=batch_size)(delayed(create_bdd)(mgrPickable, pb_plate, debug, tmp_dir) for pb_plate in l)
+    logd('parallel_kc0 took: {}'.format(time.time()-start))
+    for bdd,pb_plate in zip(bdds, pb_model.plates):
+        pb_plate.bdd = bdd
+    logd('parallel_kc took: {}'.format(time.time()-start))
+
+def create_bdd(mgr, pb_plate, debug, tmp_dir):
+    if pb_plate.f_str:
+        n_vars = pb_plate.plate.shape[1]
+        return BDD(mgr, pb_plate.f_str, n_vars, debug, 0, tmp_dir).bdd
+    else:
+        return None
+
 
 class BDD:
     '''
     Takes:
-    
+
     * f_str : a string of a boolean formula
     * n_vars : the number of variables in f_str
-    
+
     and creates an atrtibute:
-    
+
     * bdd : an array of NNodes X 4, where bdd[i] = label, high, low, iscomp, where
-    
+
         * label   = level of the node, -1 for constant nodes
         * high    = index in bdd of high child, -1 for constant nodes
         * low     = index in bdd of low child, -1 for constant nodes
         * iscomp  = boolean integer, 0 if node is complement, 1 otherwise
-    
-    See code for the methods & logic. PyCUDD is used to compile the (RO)BDD.    
-    
+
+    See code for the methods & logic. PyCUDD is used to compile the (RO)BDD.
+
     '''
-    def __init__(self, f_str, n_vars):
+    def __init__(self, mgr, f_str, n_vars, debug, i, tmp_dir):
         # attributes set by compilation
         # TODO try to remove as many as possible
         #self.mgr        = None
@@ -61,10 +118,11 @@ class BDD:
         #self.h_nodes    = None
         #self.idx_nodes  = None
         self.bdd = None
-        self.compile2(f_str, n_vars)
+        self.tmp_dir = tmp_dir
+        self.compile2(mgr, f_str, n_vars, debug, i)
 
-    def compile2(self, f_str, n_vars):
-        self.bdd = self.compile_pycudd2(f_str, n_vars)
+    def compile2(self, mgr, f_str, n_vars, debug, i):
+        self.bdd = self.compile_pycudd2(mgr, f_str, n_vars, debug, i)
         #(self.mgr, self.root, self.parents, self.nodes, self.h_nodes,
         #    self.idx_nodes) = self.compile_pycudd(f_str, n_vars)
 
@@ -73,10 +131,8 @@ class BDD:
         (self.mgr, self.root, self.parents, self.nodes, self.h_nodes,
             self.idx_nodes) = self.compile_pycudd(f_str, n_vars)
 
-    def compile_pycudd2(self, f_str, n_vars):
+    def compile_pycudd2(self, mgr, f_str, n_vars, debug, idx):
         # initialize PyCUDD
-        mgr = pycudd.DdManager()
-        mgr.SetDefault()
         # add variables
         #pattern = '\d+'
         #to_var = lambda match : 'v'+str(int(match.group(0))-1)
@@ -84,13 +140,15 @@ class BDD:
         #logd(to_exec)
         for i in range(n_vars):
             exec 'v{} = mgr.IthVar({})'.format(i,i) in locals()
-        logd('ok1')
+        #logd('ok1')
         exec 'f = {}'.format(f_str) in locals()
-        logd('ok2')
+        #logd('ok2')
         # Debug BDD
         #if n_vars>10:
-        f.DumpDot()
-
+        if debug:
+            f.DumpDot()
+            shutil.move('out.dot',
+                os.path.join(self.tmp_dir, 'bdd_plate_{}.dot'.format(idx)))
         #logd(f.T().T().NodeReadIndex())
         #logd(f.E().E().NodeReadIndex())
         #root = f
@@ -157,7 +215,7 @@ class BDD:
                     [high, low])
                 bdd[i] = [node.NodeReadIndex(), high_idx,
                     low_idx, node.IsComplement()]
-        logd(bdd)
+        #logd(bdd)
         return bdd
 
     def _compute_node_parents(self, root):

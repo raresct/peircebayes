@@ -18,30 +18,30 @@ class PBPlate:
     Container for:
 
     * plate: NXMX3 array, where
-    
+
         * N = number of data points
         * M = number of propositional variables
         * plate[N,M] = (i,j,k), where
-        
+
             * i,j = index of the random variable
             * k = category of the random variable
 
     * reps: NX1 array, where
-    
+
         * reps[N] = how many times the data point is repeated
 
     * cat_list: NX1 list, where
-    
+
         * cat_list[N] is a dictionary {(i,j) : L}, where
-        
+
             * L = list of categories that the variable indexed by i and j takes in some data point N
 
     * kid: NXM array, where:
-    
+
         * assume plate[N,M] = i,j,k, then kid[N,M] = cat_list[N][(i,j)].index(k), i.e. the index of the category of variable i,j in the cat_list for data point N
 
     * f_str: the string of the formula, with the following operators:
-    
+
         * '&' - AND
         * '|' - OR
         * '~' - NOT
@@ -55,27 +55,27 @@ class PBPlate:
         self.kid        = kid
         self.f_str      = f_str
         self.bdd        = bdd
-        
+
 class PBModel:
     """
     Instances of this class are passed to the probabilistic inference. Takes a dictionary option_args with keys:
 
     * 'probs_file'    : string of path to the pb file containing definitions of probability distributions
     * 'dir_file'      : string of path to the pb directory containing pb plate files
-    
+
     and a constant defined in constructor:
-    
-    * frozen_types    : a list of types of frozen distributions  
-    
+
+    * frozen_types    : a list of types of frozen distributions
+
     and parses the files to produce:
 
     * plates : a list of P :class:`PBPlate` objects, where
-    
+
         * P = number of plates
-        
+
     * distribs : a list of NDist tuples (args, n_cat, n_vars, frozen), where
-        
-        * NDist   = number of probability distributions  
+
+        * NDist   = number of probability distributions
         * args    = vector of (hyper)parameters
         * n_cat   = number of categories
         * n_vars  = number of distributions sampled from distrib_args
@@ -107,28 +107,31 @@ Plate {}:
     def parse(self):
         """
         Main function. Called by __init__.
-        
+
         :rtype: None
         """
         try:
             self.parse_probs()
-            n_plate_file = os.path.join(self.dir_file, 'n_plates')
-            with open(n_plate_file, 'r') as fin:
-                n_plates = int(fin.read().strip())
-            self.plates = [PBPlate(*self.parse_plate(i))
-                for i in range(1,n_plates+1)]
+            #n_plate_file = os.path.join(self.dir_file, 'n_plates')
+            #with open(n_plate_file, 'r') as fin:
+            #    n_plates = int(fin.read().strip())
+            self.plates = [PBPlate(*self.parse_plate(f_name))
+                for f_name in os.listdir(self.dir_file) if f_name.endswith('.plate')]
         except IOError as e:
+            logd('Parsing failed!')
             logging.exception('Parsing failed: '+str(e))
 
-    def parse_plate(self, i):
+    def parse_plate(self, f_name):
         """
         Parses a plate file. Returns a tuple of plate, reps, kid, cat_list, f_str to create a :class:`PBPlate` object. Called by :func:`parse`.
-        
+
         :param i: index of the plate
         :type i: int
         :rtype: tuple
         """
-        plate_file = os.path.join(self.dir_file,'out{}.plate'.format(i))
+        #plate_file = os.path.join(self.dir_file,'out{}.plate'.format(ii))
+        plate_file = os.path.join(self.dir_file, f_name)
+        logd(plate_file)
         with open(plate_file, 'r') as fin:
             plate = []
             kid = []
@@ -172,39 +175,41 @@ Plate {}:
             plate = np.array(plate)
             reps = np.array(reps)
             kid = np.array(kid)
+            #logd('=== i: {} ==='.format(ii))
             f_str = self.bool_gen(line_sols, plate_row_f, cat_d)
-            logd(plate.shape)
-            logd(reps.shape)
-            logd(kid.shape)
-            logd(len(cat_list))
+            #logd(plate.shape)
+            #logd(reps.shape)
+            #logd(kid.shape)
+            #logd(len(cat_list))
             #logd(plate)
             #logd(reps)
             #logd(kid)
             #logd(cat_list)
-            logd('f_str')
-            logd(f_str)
+            #logd('f_str')
+            #logd(f_str)
             return plate, reps, kid, cat_list, f_str
 
     def bool_gen(self, line_sols, plate_row, cat_d):
         """
         Creates a boolean function string from a single plate row (more specifically, the last one). Called by :func:`parse_plate`.
-        
-        :param line_sols: encoding of a DNF. ';' for OR, '.' for AND.
+
+        :param line_sols: encoding of a DNF. A list (disjunction) of strings (conjunction) in which '.' stands for AND, and elements of the conjunction are i,j,k .
         :type line_sols: string
-        :param plate_row: distinct choices (i,j,k) in line_sols 
+        :param plate_row: distinct choices (i,j,k) in line_sols
         :type plate_row: set
         :param cat_d: see cat_list[N] in the doc of :class:`PBPlate`.
         :type cat_d: dict
         :rtype: string
         """
         #sols_l = [[[int( for] el for el in l.split('.')] for l in line_sols]
-        #logd(sols_l)        
+        #logd(sols_l)
         #return
         sols_s = '|'.join(line_sols)
         #logd(plate_row)
         sols_s = sols_s.replace('.', '&')
         #logd(sols_s)
         #logd(cat_d)
+        dbg_vars = set()
         for (i,j,k) in plate_row:
             k_list = cat_d[(i,j)]
             len_k_list = len(k_list)
@@ -233,23 +238,27 @@ Plate {}:
             logd(ad_str)
             logd(k_list)
             '''
-            sols_s = '|'.join([ '&'.join([ ad_str 
-                if ',' in s and [int(c) for c in s.split(',')] == [i,j,k] 
+            dbg_vars.add((i,j,k,start_idx))
+            sols_s = '|'.join([ '&'.join([ ad_str
+                if ',' in s and [int(c) for c in s.split(',')] == [i,j,k]
                 else s
                 for s in conj.split('&')
-              ]) 
+              ])
                 for conj in sols_s.split('|')
             ])
             #logd(sols_s)
+        #with open('/tmp/peircebayes/dbg_vars.txt', 'w') as f:
+        #    for (i,j,k,idx) in sorted(list(dbg_vars), key=lambda x: x[3]):
+        #        f.write(','.join([str(el) for el in [i,j,k,idx]])+'\n')
         return sols_s
 
     def parse_probs(self):
         """
         Parses the distribution file. Creates distribs (see doc for :class:`PBModel`). Called by :func:`parse`.
-        
+
         :rtype: None
         """
-        
+
         distribs = []
         with open(self.probs_file, 'r') as fin:
             distribs = [self.parse_distrib(d) for d in fin]
@@ -258,12 +267,12 @@ Plate {}:
     def parse_distrib(self, d):
         """
         Parses a single distribution and returns a tuple of args, n_cat, n_vars, frozen (see doc for :class:`PBModel`). Called by :func:`parse_probs`.
-        
+
         :param d: String describing a distribution.
         :type d: string
-        :rtype: tuple 
+        :rtype: tuple
         """
-        
+
         distrib_split = d.strip().split(' ')
         if len(distrib_split) < 3:
            raise Exception('Probs file incorrectly written!')

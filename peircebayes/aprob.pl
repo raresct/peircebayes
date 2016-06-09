@@ -397,7 +397,9 @@ strictdelete([H|T], X, R) :-
 %                       aprob_dirichlet,aprob_dirichlet_share,
 %                       aprob_plate]).
 
-:-my_set_value(probs_file, '/tmp/peircebayes/aprob/out.probs').
+%:-my_set_value(probs_file, '/tmp/peircebayes/aprob/out.probs').
+%:-my_set_value(n_file, '/tmp/peircebayes/aprob/plates/n_plates').
+%:-my_set_value(plate_file, '/tmp/peircebayes/aprob/plates/out').
 :-my_set_value(pb_preds, [pb_dirichlet, pb_categorical, pb_plate]).
 
 :-set_value(abd_plate, off).
@@ -805,7 +807,8 @@ assert_pds_r([H|T], [H|T2], ProbTemplates, ProbPredL,
 
 query_plates(L1, L2) :-
     length(L1, LenL1),
-    open('/tmp/peircebayes/aprob/plates/n_plates', write, Stream),
+    my_get_value(n_file, File),
+    open(File, write, Stream),
     write(Stream, LenL1),
     close(Stream),
     query_plates_r(L1, L2, 1),
@@ -837,7 +840,7 @@ write_prob_templates_r(Stream, [(Param, NCat, NInst)|T],
 
 query_plates_r([], [], _NAcc).
 query_plates_r([ pb_plate(OuterQ, Reps, InnerQ) | T], L2, NAcc) :-
-    File = '/tmp/peircebayes/aprob/plates/out',
+    my_get_value(plate_file, File),
     atom_chars(File, LF),
     number_chars(NAcc, LN),
     Ext = '.plate',
@@ -853,20 +856,20 @@ query_plates_r([ pb_plate(OuterQ, Reps, InnerQ) | T], L2, NAcc) :-
     NAcc1 is NAcc+1,
     query_plates_r(T, L2, NAcc1).
 
-query_plate(Stream, OuterQ, Reps, InnerQ) :-
+%query_plate(Stream, OuterQ, Reps, InnerQ) :-
     %set_value(bdd_created, 0),
-    findall(AbdTask,
-        (
-            q_pb(OuterQ,_),
-            findall( AbdSol,
-                (
-                q_pb(InnerQ, (AbdSol,_,_))
+%    findall(AbdTask,
+%        (
+%            q_pb(OuterQ,_),
+%            findall( AbdSol,
+%                (
+%                q_pb(InnerQ, (AbdSol,_,_))
                 %process_as(As, As1),
                 %AbdSol = (As, []),
                 %format('AbdSol:\n~p\n',[AbdSol])
                 %format('Dict:\n~p\n',[AbdSol])
-                ),
-            AbdSolL),
+%                ),
+%            AbdSolL),
             %agg_sol(AbdSolL, AggL, []),
             %format('AbdSolL:\n~p\n',[AbdSolL]),
             %format('AggL:\n~p\n',[AggL]),
@@ -884,28 +887,44 @@ query_plate(Stream, OuterQ, Reps, InnerQ) :-
             %my_unzip(AbdSolL, DeltaList, DeltaNList),
             %sort(DeltaList, SortedDeltaList),
             %AbdTask = (SortedDeltaList, DeltaNList, Reps) %?
-            AbdTask = (AbdSolL, Reps)
-        ),
-    AbdTaskL),
+%            AbdTask = (AbdSolL, Reps)
+%        ),
+%    AbdTaskL),
     %format('AbdTaskL:\n~p\n',[AbdTaskL]),
-    write_pb_plate(Stream, AbdTaskL).
+%    write_pb_plate(Stream, AbdTaskL).
+
+query_plate(Stream, OuterQ, Reps, InnerQ) :-
+    forall(
+        (
+            q_pb(OuterQ,_),
+            findall( AbdSol, q_pb(InnerQ, (AbdSol,_,_)), AbdSolL)
+        ),
+        (
+            %print(AbdSolL),nl,nl,
+            write_abd_sol_l(Stream, AbdSolL, ';'),
+            format(Stream, '~d\n',[Reps]),
+            flush_output(Stream)
+        )
+    ).
 
 write_pb_plate(_Stream, []).
 write_pb_plate(Stream, [(AbdSolL, Reps)|T]) :-
     ( AbdSolL=[[]] ->
-        true
+        format(Stream, '~d\n',[Reps])
     ;
         write_abd_sol_l(Stream, AbdSolL, ';'),
         format(Stream, '~d\n',[Reps])
     ),
     write_pb_plate(Stream, T).
 
+write_abd_sol_l(_Stream, [[]], _Op) :- !.
 write_abd_sol_l(_Stream, [], _Op).
 write_abd_sol_l(Stream, [AbdSol|T], Op) :-
     write_abd_sol(Stream, AbdSol, '.'),
     format(Stream, '~p', [Op]),
     write_abd_sol_l(Stream, T, Op).
 
+write_abd_sol(_Stream, [], _Op).
 write_abd_sol(Stream, [(Pred, PDIdx, Cat, _)], _Op) :-
     my_get_value(prob_pred_l, ProbPredL),
     nth1(PredIdx, ProbPredL, (Pred, _)),
@@ -2183,6 +2202,14 @@ solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
     NewGs = [(d,Term) | RestGs],
     solve_all(NewGs, As, Cs, Ns, NewInfo, Sol).
 
+% pb neg    
+solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
+    D =.. [pb_neg, Term],
+    %inspect_solve_one((d, D), RestGs, As, Cs, Ns, Info, NewInfo),
+    findall(and(AbdSol), q_pb([Term], (AbdSol,_,_)), AbdSolL),
+    NewAs = [neg(or(AbdSolL))|As],
+    solve_all(RestGs, NewAs, Cs, Ns, NewInfo, Sol).
+
 % probabilistic abducible
 solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
     D =.. [Pred, Cat, PDIdx],
@@ -2194,14 +2221,20 @@ solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
     %format('D prob: ~p\n', [D]),
     % TODO ground checking of the args
     % TODO encode As as a hash
-    (
-        % case 1: the same category was chosen before
-        % NB: if a different category was chosen this fails
-        member((Pred, PDIdx, Cat, _), As),
-        NewAs = As
+    (member((Pred, PDIdx, Cat2, _), As) ->
+        (Cat =\= Cat2 ->
+            fail
+        ;
+            % case 1: the same category was chosen before
+            % NB: if a different category was chosen this fails
+            member((Pred, PDIdx, Cat, _), As),
+            NewAs = As
+        )
     ;
         % case 2: a choice from the pd was not made
-        \+member((Pred, PDIdx, Cat, _), As),
+        %print(As),nl,
+        \+ member((Pred, PDIdx, Cat, _), As),
+        %format('D prob (no choice): ~p\n', [D]),
         % extract NCat the number of categories in the pd
         my_get_value(prob_templates, ProbTemplates),
         nth0(N, ProbTemplates, (_, NCat, _NInst)),
@@ -2215,7 +2248,7 @@ solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
 solve_one(d, D, RestGs, As, Cs, Ns, Info, Sol) :-
     my_get_value(prob_pred_l, ProbPredL),
     D =.. [Pred | _],
-    \+member((Pred, _), ProbPredL),
+    \+ member((Pred, _), ProbPredL),
     %format('D normal: ~p\n', [D]),
     % original
     inspect_solve_one((d, D), RestGs, As, Cs, Ns, Info, NewInfo),
@@ -2334,7 +2367,7 @@ fail_one(d, D, Vs, RestLits, RestGs, As, Cs, Ns, Info, Sol) :-
         % case 2: a choice from the pd was not made
         % here we generate the sample space \setminus Cat
         % as alternative solutions
-        \+member((Pred, PDIdx, _Cat, _), As),
+        \+ member((Pred, PDIdx, _Cat, _), As),
         % extract NCat the number of categories in the pd
         my_get_value(prob_templates, ProbTemplates),
         nth0(N, ProbTemplates, (_, NCat, _NInst)),
@@ -2356,7 +2389,8 @@ fail_one(d, D, Vs, RestLits, RestGs, As, Cs, Ns, Info, Sol) :-
 fail_one(d, D, Vs, RestLits, RestGs, As, Cs, Ns, Info, Sol) :-
     my_get_value(prob_pred_l, ProbPredL),
     D =.. [Pred | _],
-    \+member((Pred, _), ProbPredL),
+    \+ member((Pred, _), ProbPredL),
+    print(D),nl,
     inspect_fail_one((d, D), Vs, RestLits, RestGs, As, Cs, Ns, Info, NewInfo),
     findall(H-B, (rule((d, H), B), unifiable(H, D)), Rules),
     resolve_failure_non_abducible_with_rules(Rules, D, Vs, RestLits, FailureGoals),
